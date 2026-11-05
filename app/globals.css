@@ -1,26 +1,55 @@
 @import "tailwindcss";
 
+/* One switch for everything: <html data-theme> sets color-scheme, and every token
+   resolves through light-dark(). The app, Clerk's components and native controls
+   all follow it, so a forced theme beats the system one everywhere at once.
+   "system" leaves both schemes open and the OS decides. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light dark;
+  --surface: light-dark(#fafafa, #0f1012);
+  --surface-raised: light-dark(#ffffff, #17181b);
+  --line: light-dark(#e3e3e6, #2a2b30);
+  --fg: light-dark(#17171a, #e6e6e9);
+  --fg-muted: light-dark(#6c6c75, #9a9aa3);
+  /* For selection and anything interactive, and nothing else. */
+  --accent: light-dark(#2458d3, #6d9cff);
+  --accent-fg: light-dark(#ffffff, #0f1012);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Only the colours below exist. Colour carries meaning or it isn't there. */
+  --color-*: initial;
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* The theme control's selected segment follows the root attribute, so it is
+   right on first paint, before React hydrates. */
+:root[data-theme="system"] [data-theme-option="system"],
+:root[data-theme="light"] [data-theme-option="light"],
+:root[data-theme="dark"] [data-theme-option="dark"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }

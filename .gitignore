@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Tài liệu đọc riêng, không thuộc dự án và agent không dùng
+/_local/
