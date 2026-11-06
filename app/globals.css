@@ -14,6 +14,8 @@
   /* For selection and anything interactive, and nothing else. */
   --accent: light-dark(#2458d3, #6d9cff);
   --accent-fg: light-dark(#ffffff, #0f1012);
+  /* A run that failed. The only state that needs to catch the eye. */
+  --danger: light-dark(#c4302b, #f2706b);
 }
 
 :root[data-theme="light"] {
@@ -34,6 +36,7 @@
   --color-muted: var(--fg-muted);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
