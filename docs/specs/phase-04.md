@@ -21,6 +21,11 @@
   right. Later phases fill these; they do not move them.
 - The left rail lists categories of file — a colour swatch, a name, and how many
   files are in it. Nothing happens when you click one yet.
+- For visual preview, the rail also shows explicitly labelled mock counts for
+  `.tsx`, `.mjs`, `.cjs` and `.js`. These do not enter the parser data or graph.
+- Category swatches also prefix file rows in opened panels. Use the same colour
+  for an extension in both places: purple for `.ts`, pink for `.tsx`, rose for
+  `.js`, and grey for the explicit module extensions.
 - **Folding, and this is the rule the whole map rests on.** Every directory
   starts as its own node. Then, working from the deepest directory upward, any
   directory holding fewer than a couple of files merges into its parent. If that
@@ -31,8 +36,11 @@
 - **An opened folder becomes a panel, not loose nodes.** It stays one object on
   the canvas — a bordered box with a header carrying the folder's name, how many
   files are in it, and its fan-in and fan-out — and the files appear as rows
-  inside that box. When there are more rows than fit, the panel says how many
-  more rather than growing without limit. Edges connect to the rows.
+  inside that box. The file list scrolls within a fixed height, with the header
+  staying visible and a footer showing the visible range and counts above and
+  below it. Every file is selectable. Edges connect to visible rows; connections
+  to off-screen files meet the list's top or bottom edge. Scrolling updates edge
+  endpoints without moving, resizing or refitting the graph.
 - A node's **height** carries how many things depend on it. Width comes from the
   label, so a long name doesn't read as an important file.
 - Opening a folder refits the view so the new panel is visible.
