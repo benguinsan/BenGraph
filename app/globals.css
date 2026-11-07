@@ -22,7 +22,6 @@
   --kind-tsx: light-dark(#ad3cbe, #dc7ded);
   --kind-js: light-dark(#c64165, #f77b9c);
   --kind-module: light-dark(#73737c, #96969f);
-  --kind-jsx: light-dark(#22774c, #73c69a);
 }
 
 :root[data-theme="light"] {
@@ -78,7 +77,7 @@ body {
 .file-kind[data-extension=".tsx"] { background: var(--kind-tsx); }
 .file-kind[data-extension=".js"] { background: var(--kind-js); }
 .file-kind:is([data-extension=".mts"], [data-extension=".cts"], [data-extension=".mjs"], [data-extension=".cjs"]) { background: var(--kind-module); }
-.file-kind[data-extension=".jsx"] { background: var(--kind-jsx); }
+.file-kind[data-extension=".jsx"] { background: var(--kind-js); }
 
 .dependency-map .react-flow {
   --xy-background-color: var(--surface);
