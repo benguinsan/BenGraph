@@ -1,5 +1,5 @@
 import { ThemeControl } from "@/components/theme-control";
-import { DependencyMap } from "@/components/dependency-map";
+import { RepositoryMap } from "@/components/repository-map";
 import { previewAnalysis } from "@/data/preview-analysis.mts";
 
 const mockCategories = [
@@ -24,7 +24,7 @@ export default function PreviewPage() {
           <ThemeControl />
         </div>
       </header>
-      <main className="grid min-h-0 min-w-192 flex-1 grid-cols-[11rem_minmax(19rem,1fr)_18rem]">
+      <main className="grid min-h-0 min-w-192 flex-1 grid-cols-[11rem_minmax(19rem,1fr)_clamp(18rem,32vw,28rem)]">
         <aside aria-label="File categories" className="overflow-y-auto border-r border-line bg-raised">
           <h2 className="flex h-9 items-center border-b border-line px-3 font-medium">File categories</h2>
           <ul className="py-1">
@@ -47,10 +47,11 @@ export default function PreviewPage() {
             ))}
           </ul>
         </aside>
-        <section aria-label="Dependency map" className="min-h-0 min-w-0">
-          <DependencyMap analysis={previewAnalysis} />
-        </section>
-        <aside aria-label="File details" className="overflow-y-auto border-l border-line bg-raised" />
+        <RepositoryMap analysis={previewAnalysis} name="ts-morph / compiler" examples={[
+          "ast/type/TypeNode.ts",
+          "ast/statement/Statement.ts",
+          "ast/expression/Expression.ts",
+        ]} />
       </main>
     </div>
   );
