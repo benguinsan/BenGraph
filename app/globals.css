@@ -16,6 +16,13 @@
   --accent-fg: light-dark(#ffffff, #0f1012);
   /* A run that failed. The only state that needs to catch the eye. */
   --danger: light-dark(#c4302b, #f2706b);
+  --incoming: light-dark(#22774c, #73c69a);
+  --outgoing: light-dark(#916109, #dfb35e);
+  --kind-ts: light-dark(#7754c4, #ad91f5);
+  --kind-tsx: light-dark(#ad3cbe, #dc7ded);
+  --kind-js: light-dark(#c64165, #f77b9c);
+  --kind-module: light-dark(#73737c, #96969f);
+  --kind-jsx: light-dark(#22774c, #73c69a);
 }
 
 :root[data-theme="light"] {
@@ -37,6 +44,8 @@
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
+  --color-incoming: var(--incoming);
+  --color-outgoing: var(--outgoing);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -55,4 +64,40 @@ body {
 :root[data-theme="dark"] [data-theme-option="dark"] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.file-kind {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  flex-shrink: 0;
+  background: var(--fg-muted);
+}
+.file-kind[data-extension=".ts"] { background: var(--kind-ts); }
+.file-kind[data-extension=".tsx"] { background: var(--kind-tsx); }
+.file-kind[data-extension=".js"] { background: var(--kind-js); }
+.file-kind:is([data-extension=".mts"], [data-extension=".cts"], [data-extension=".mjs"], [data-extension=".cjs"]) { background: var(--kind-module); }
+.file-kind[data-extension=".jsx"] { background: var(--kind-jsx); }
+
+.dependency-map .react-flow {
+  --xy-background-color: var(--surface);
+  --xy-controls-button-background-color: var(--surface-raised);
+  --xy-controls-button-background-color-hover: var(--surface);
+  --xy-controls-button-color: var(--fg);
+  --xy-controls-button-color-hover: var(--fg);
+  --xy-controls-button-border-color: var(--line);
+  --xy-controls-box-shadow: none;
+  --xy-attribution-background-color: var(--surface);
+}
+.dependency-map .react-flow__controls { border: 1px solid var(--line); border-radius: 3px; }
+.dependency-map .react-flow__controls-button { width: 24px; height: 24px; }
+.dependency-map .react-flow__attribution a { color: var(--fg-muted); }
+.dependency-map .react-flow__handle {
+  width: 4px;
+  height: 4px;
+  min-width: 4px;
+  min-height: 4px;
+  border: 0;
+  background: var(--fg-muted);
 }
