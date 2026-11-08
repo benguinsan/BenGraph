@@ -8,6 +8,7 @@ import type { Selection } from "@/lib/graph/view.mts";
 import { DependencyMap } from "./dependency-map";
 import { DetailPane } from "./detail-pane";
 
+/** Shares local selection, hover and expansion between the map, optional example buttons and detail pane. */
 export function RepositoryMap({ analysis, name, examples = [] }: { analysis: ParseResult; name: string; examples?: readonly string[] }) {
   const [selection, setSelection] = useState<Selection>(null);
   const [hovered, setHovered] = useState<Selection>(null);
@@ -15,6 +16,7 @@ export function RepositoryMap({ analysis, name, examples = [] }: { analysis: Par
   const folded = useMemo(() => foldFiles(analysis.files, analysis.edges), [analysis]);
   const structure = useMemo(() => repositoryStructure(analysis.files, analysis.edges), [analysis]);
 
+  /** Reveals and selects a file in its owning folded folder, rejecting paths absent from the graph. */
   const selectFile = useCallback((path: string) => {
     const owner = folded.modules.find(module => module.files.some(file => file.path === path));
     if (!owner) throw new Error(`Selected file is missing: ${path}`);
@@ -23,6 +25,7 @@ export function RepositoryMap({ analysis, name, examples = [] }: { analysis: Par
     setHovered(null);
   }, [folded]);
 
+  /** Opens or closes a folded folder and makes it the current detail selection. */
   const toggle = useCallback((folder: string) => {
     setExpanded(current => {
       const next = new Set(current);

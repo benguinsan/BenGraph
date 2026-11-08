@@ -9,6 +9,7 @@ const mockCategories = [
   { extension: ".js", count: 64 },
 ];
 
+/** Renders the offline explorer from the pinned parser fixture, with mock categories labelled separately. */
 export default function PreviewPage() {
   const counts = new Map<string, number>();
   for (const file of previewAnalysis.files) {

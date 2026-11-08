@@ -1,6 +1,10 @@
 import type { Edge, ParsedFile } from "../parser/index.mts";
 import { compare } from "./folding.mts";
 
+/**
+ * Derives distinct, sorted file neighbours and repository rankings from resolved import edges.
+ * Rejects missing endpoints; entry points have no importers and are ranked by dependency count.
+ */
 export function repositoryStructure(files: readonly ParsedFile[], edges: readonly Edge[]) {
   const connections = new Map(files.map(file => [file.path, { dependencies: new Set<string>(), dependents: new Set<string>() }]));
   for (const edge of edges) {
@@ -14,6 +18,7 @@ export function repositoryStructure(files: readonly ParsedFile[], edges: readonl
     dependencies: [...value.dependencies].sort(compare),
     dependents: [...value.dependents].sort(compare),
   }]));
+  /** Orders higher counts first, breaking ties by path so input order cannot change the ranking. */
   const rank = (a: { path: string; count: number }, b: { path: string; count: number }) => b.count - a.count || compare(a.path, b.path);
   return {
     neighbours,

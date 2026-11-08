@@ -32,6 +32,7 @@ function Ports({ name, top, opacity = 1 }: { name: string; top: number; opacity?
   );
 }
 
+/** Keeps file rows scrollable and clamps import endpoints to their visible list boundaries. */
 function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
   const { module, focusedFiles, selectedFile, focused, selectFile, hovered, onHover } = data;
   const [scrollTop, setScrollTop] = useState(0);
@@ -96,6 +97,7 @@ function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
   );
 }
 
+/** Renders a folded folder or its file rows while reporting selection and hover to the shared explorer. */
 function FolderPanel({ id, data }: NodeProps<FolderNode>) {
   const { module, active, toggle, hovered, onHover } = data;
   const highlighted = hovered?.kind === "folder" ? hovered.id === module.folder : module.files.some(file => file.path === hovered?.id);
@@ -150,6 +152,7 @@ interface MapProps {
   onDeselect: () => void;
 }
 
+/** Projects resolved imports onto folder panels and refits changed layouts without zooming in. */
 function Canvas({ analysis, modules, expanded, selection, hovered, onHover, onSelectFile, onToggle, onDeselect }: MapProps) {
   const { setViewport, getZoom, viewportInitialized } = useReactFlow<FolderNode>();
   const canvasWidth = useStore(state => state.width);

@@ -17,6 +17,7 @@ interface DetailProps {
   onSelectFile: (path: string) => void;
 }
 
+/** Shows repository, folder or file facts from browser data while preserving the selected tab. */
 export function DetailPane({ analysis, name, modules, structure, selection, hovered, onHover, onSelectFile }: DetailProps) {
   const [tab, setTab] = useState<"structure" | "explanation">("structure");
   const id = useId();
@@ -24,8 +25,10 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
   const folder = selection?.kind === "folder" ? modules.find(module => module.folder === selection.id) : undefined;
   const neighbours = file ? structure.neighbours.get(file.path) : undefined;
   const hoveredFolder = hovered?.kind === "folder" ? modules.find(module => module.folder === hovered.id) : undefined;
+  /** Matches a path against the hovered file or the members of the hovered folded folder. */
   const isHighlighted = (path: string) => hovered?.kind === "file" ? hovered.id === path : hoveredFolder?.files.some(file => file.path === path) ?? false;
 
+  /** Selects a real file and shares hover state, retaining its full path when the label is shortened. */
   function pathButton(path: string, compact = false) {
     const slash = path.lastIndexOf("/") + 1;
     return (
@@ -42,6 +45,7 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
     );
   }
 
+  /** Lists all file neighbours; only repository summaries stop at ten rows and report the remainder. */
   function paths(title: string, rows: readonly { path: string; count?: number }[], note?: string, direction?: "incoming" | "outgoing", summary = false) {
     const List = summary ? "ol" : "ul";
     const visible = summary ? rows.slice(0, 10) : rows;
