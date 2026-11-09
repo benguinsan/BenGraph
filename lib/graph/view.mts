@@ -107,10 +107,11 @@ export function buildView(modules: readonly FoldedModule[], imports: readonly Ed
   return { nodes, edges };
 }
 
-export function focusGraph(modules: readonly FoldedModule[], edges: readonly Edge[], selection: Selection) {
+export function focusGraph(modules: readonly FoldedModule[], edges: readonly Edge[], selection: Selection, matchingFiles: ReadonlySet<string> | null = null) {
   const selected = new Set(selection?.kind === "file" ? [selection.id] : modules.find(m => m.folder === selection?.id)?.files.map(f => f.path));
   const imports = selection ? edges.filter(edge => selected.has(edge.from) || selected.has(edge.to)) : [...edges];
-  const files = new Set(selection ? [...selected, ...imports.flatMap(edge => [edge.from, edge.to])] : modules.flatMap(m => m.files.map(f => f.path)));
+  const files = new Set(matchingFiles ?? (selection ? [...selected, ...imports.flatMap(edge => [edge.from, edge.to])] : modules.flatMap(m => m.files.map(f => f.path))));
   const folders = new Set(modules.filter(module => module.files.some(file => files.has(file.path))).map(module => module.folder));
-  return { selected, files, folders, imports };
+  const matchCounts = matchingFiles === null ? null : new Map(modules.map(module => [module.folder, module.files.filter(file => matchingFiles.has(file.path)).length]));
+  return { selected, files, folders, imports, matchCounts };
 }

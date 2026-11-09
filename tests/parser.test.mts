@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -8,6 +8,26 @@ import test from "node:test";
 import { parseRepository, readParseResult } from "../lib/parser/index.mts";
 
 const run = promisify(execFile);
+
+test("counts source symlinks as skipped without following them or emitting their edges", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "cartograph-symlink-"));
+  try {
+    await writeFile(path.join(root, "real.ts"), "export const value = 1;");
+    await writeFile(path.join(root, "entry.ts"), 'import "./alias";');
+    await symlink("real.ts", path.join(root, "alias.ts"));
+    await symlink("missing.ts", path.join(root, "broken.ts"));
+    await symlink(".", path.join(root, "loop"), "dir");
+    const result = await parseRepository(root);
+    assert.equal(result.coverage.filesFound, 4);
+    assert.equal(result.coverage.filesParsed, 2);
+    assert.equal(result.coverage.filesSkipped, 2);
+    assert.deepEqual(result.coverage.skipped.map(file => file.path), ["alias.ts", "broken.ts"]);
+    assert.ok(result.coverage.skipped.every(file => /symbolic link/i.test(file.reason)));
+    assert.equal(result.imports[0]?.status, "excluded");
+    assert.match(result.imports[0]?.reason ?? "", /symbolic link/i);
+    assert.equal(result.edges.length, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("fails loudly on invalid compiler config even without imports", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "cartograph-invalid-config-"));

@@ -147,6 +147,24 @@ test("folder selection includes every member and clearing selection restores eve
   assert.deepEqual(cleared.imports, edges);
 });
 
+test("category focus takes precedence over selection, counts every panel, and keeps the full layout", () => {
+  const files = ["a/one.ts", "a/two.tsx", "b/three.ts", "b/four.tsx", "c/five.tsx", "c/six.tsx"].map(file);
+  const edges = [edge("a/one.ts", "a/two.tsx"), edge("b/three.ts", "b/four.tsx")];
+  const { modules } = foldFiles(files, edges);
+  const category = new Set(["a/one.ts", "b/three.ts"]);
+  const focused = focusGraph(modules, edges, { kind: "file", id: "a/two.tsx" }, category);
+  assert.deepEqual([...focused.files].sort(), ["a/one.ts", "b/three.ts"]);
+  assert.deepEqual([...focused.folders].sort(), ["a", "b"]);
+  assert.deepEqual([...focused.matchCounts!], [["a", 1], ["b", 1], ["c", 0]]);
+  assert.equal([...focused.matchCounts!.values()].reduce((sum, count) => sum + count, 0), category.size);
+  assert.deepEqual(focusGraph(modules, edges, null, new Set()).files, new Set());
+  assert.equal(focusGraph(modules, edges, null).matchCounts, null);
+  const view = buildView(modules, edges, new Set(["a", "b", "c"]));
+  assert.equal(view.nodes.length, 3);
+  assert.equal(view.nodes.flatMap(node => node.rows).length, 6);
+  assert.equal(view.edges.flatMap(item => item.imports).length, 2);
+});
+
 test("internal imports remain visible when off-screen endpoints share a list boundary", () => {
   for (const targetY of [100, 148]) {
     const path = localEdgePath(100, 100, 100, targetY);

@@ -9,10 +9,16 @@
   the edge list with a direction argument and a depth limit. Write it once.
 - Two levels deep by default. Deeper returns most of the repository and stops
   being an answer.
+  Group the displayed files by shortest distance: "1 step away" and "2 steps
+  away", each with its count. The heading counts the displayed files; a footer
+  counts further reachable files without listing them. Unreachable files and
+  the starting file are excluded from every count.
 - Both appear as buttons in the detail pane, and both return instantly.
 - **Insights**, four kinds, all of them facts about the edge list: import
   cycles, files nothing imports, files an unusual number of things import, and
   files that are simply too long.
+  Frequently imported means at least 10 distinct importing files; long means
+  more than 500 lines. Both thresholds are shown in the panel.
 - The left rail becomes real: clicking a category **dims everything that isn't
   in it**, rather than removing it. Each open panel shows how many of its files
   matched, so you can see which parts of the repository the category lives in

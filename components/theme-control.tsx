@@ -6,13 +6,21 @@ import { THEME_KEY } from "@/lib/theme";
 type Theme = "system" | "light" | "dark";
 
 function storedTheme(): Theme {
-  const value = localStorage.getItem(THEME_KEY);
-  return value === "light" || value === "dark" ? value : "system";
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" ? value : "system";
+  } catch {
+    return "system";
+  }
 }
 
 function chooseTheme(theme: Theme) {
-  localStorage.setItem(THEME_KEY, theme);
   document.documentElement.dataset.theme = theme;
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    // Storage can be blocked; the current page can still use the chosen theme.
+  }
 }
 
 // The attribute on <html> is the source of truth. The head script sets it before
