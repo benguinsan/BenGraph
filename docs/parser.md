@@ -20,7 +20,8 @@ Selection keeps all JS/TS source files in whole directories. `.git`,
 `node_modules`, `.next`, `dist`, `build` and `coverage` directories are excluded.
 Symbolic links are not followed. `filesFound` counts source candidates in the
 selected directories; `filesParsed + filesSkipped` equals `filesFound`.
-Declarations, unreadable files and syntax failures are listed with skip reasons.
+Source-file symbolic links, declarations, unreadable files and syntax failures
+are listed with skip reasons. Directory links are not traversed.
 No edges are emitted to skipped files.
 
 Resolution uses the nearest `tsconfig.json` or `jsconfig.json` inside the input

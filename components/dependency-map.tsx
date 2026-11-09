@@ -17,6 +17,7 @@ type FolderNode = Node<{
   hovered: Selection;
   active: boolean;
   focused: boolean;
+  matchCount: number | null;
   toggle: (folder: string) => void;
   selectFile: (path: string) => void;
   onHover: (selection: Selection) => void;
@@ -59,7 +60,7 @@ function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
         onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
       >
         {module.rows.map(({ file, label }) => (
-          <div key={file.path} style={{ opacity: hovered?.kind === "file" && hovered.id === file.path || !focused || focusedFiles.has(file.path) ? 1 : 0.18 }}>
+          <div key={file.path} style={{ opacity: data.matchCount === null && hovered?.kind === "file" && hovered.id === file.path || !focused || focusedFiles.has(file.path) ? 1 : 0.18 }}>
             <button
               type="button"
               className={`nodrag flex w-full cursor-pointer items-center gap-2 border-t border-line px-3 text-left font-mono text-[12px] focus-visible:outline-2 focus-visible:outline-accent ${selectedFile === file.path || hovered?.kind === "file" && hovered.id === file.path ? "bg-accent/10 text-accent hover:bg-accent/20" : "hover:bg-accent/10"}`}
@@ -99,7 +100,7 @@ function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
 
 /** Renders a folded folder or its file rows while reporting selection and hover to the shared explorer. */
 function FolderPanel({ id, data }: NodeProps<FolderNode>) {
-  const { module, active, toggle, hovered, onHover } = data;
+  const { module, active, toggle, hovered, onHover, matchCount } = data;
   const highlighted = hovered?.kind === "folder" ? hovered.id === module.folder : module.files.some(file => file.path === hovered?.id);
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => { updateNodeInternals(id); }, [id, module.expanded, module.width, module.height, updateNodeInternals]);
@@ -115,7 +116,7 @@ function FolderPanel({ id, data }: NodeProps<FolderNode>) {
         onFocus={() => onHover({ kind: "folder", id: module.folder })}
         onBlur={() => onHover(null)}
         aria-expanded={module.expanded}
-        aria-label={`${module.expanded ? "Close" : "Open"} ${module.folder || "repository root"}, ${module.files.length} files`}
+        aria-label={`${module.expanded ? "Close" : "Open"} ${module.folder || "repository root"}, ${module.files.length} files${matchCount === null ? "" : `, ${matchCount} matched`}`}
         title={module.folder || "Repository root"}
       >
         <span className="flex w-full items-center gap-2 font-mono font-medium">
@@ -123,7 +124,7 @@ function FolderPanel({ id, data }: NodeProps<FolderNode>) {
           <span>{module.label}</span>
         </span>
         <span className="flex w-full items-center gap-2 text-[11px] tabular-nums text-muted">
-          <span>{module.files.length} files</span>
+          <span title={matchCount === null ? undefined : `${matchCount} matched / ${module.files.length} files`}>{matchCount !== null && `${matchCount}/`}{module.files.length} files</span>
           <span className="ml-auto text-incoming" title="Distinct external files importing this folder">←{module.fanIn}</span>
           <span className="text-outgoing" title="Distinct files imported outside this folder">{module.fanOut}→</span>
         </span>
@@ -142,8 +143,10 @@ const edgeTypes = { local: LocalImportEdge };
 
 interface MapProps {
   analysis: ParseResult;
+  name: string;
   modules: readonly FoldedModule[];
   expanded: ReadonlySet<string>;
+  matchingFiles: ReadonlySet<string> | null;
   selection: Selection;
   hovered: Selection;
   onHover: (selection: Selection) => void;
@@ -153,13 +156,13 @@ interface MapProps {
 }
 
 /** Projects resolved imports onto folder panels and refits changed layouts without zooming in. */
-function Canvas({ analysis, modules, expanded, selection, hovered, onHover, onSelectFile, onToggle, onDeselect }: MapProps) {
+function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, hovered, onHover, onSelectFile, onToggle, onDeselect }: MapProps) {
   const { setViewport, getZoom, viewportInitialized } = useReactFlow<FolderNode>();
   const canvasWidth = useStore(state => state.width);
   const canvasHeight = useStore(state => state.height);
   const view = useMemo(() => buildView(modules, analysis.edges, expanded), [modules, analysis, expanded]);
   const fittedView = useRef<typeof view | null>(null);
-  const focus = useMemo(() => focusGraph(modules, analysis.edges, selection), [modules, analysis, selection]);
+  const focus = useMemo(() => focusGraph(modules, analysis.edges, selection, matchingFiles), [modules, analysis, selection, matchingFiles]);
 
   useEffect(() => {
     if (!viewportInitialized || canvasWidth <= 0 || canvasHeight <= 0 || fittedView.current === view) return;
@@ -172,24 +175,30 @@ function Canvas({ analysis, modules, expanded, selection, hovered, onHover, onSe
     void setViewport(getViewportForBounds(bounds, canvasWidth, canvasHeight, 0.01, maxZoom, 0.08), { duration: 0 });
   }, [view, canvasWidth, canvasHeight, viewportInitialized, setViewport, getZoom]);
 
-  const nodes: FolderNode[] = view.nodes.map(module => ({
-    id: module.id, type: "folder", position: module.position,
-    width: module.width, height: module.height,
-    // React Flow disables pointer events when dragging and built-in selection
-    // are off; the folder's own buttons still need to receive clicks.
-    style: { width: module.width, height: module.height, pointerEvents: "all", opacity: focus.folders.has(module.folder) || (hovered?.kind === "folder" ? hovered.id === module.folder : module.files.some(file => file.path === hovered?.id)) ? 1 : 0.18 },
-    data: { module, focusedFiles: focus.files, focused: focus.folders.has(module.folder),
-      selectedFile: selection?.kind === "file" ? selection.id : null,
-      active: selection?.kind === "folder" ? selection.id === module.folder : module.files.some(file => file.path === selection?.id),
-      hovered, onHover, toggle: onToggle, selectFile: onSelectFile },
-  }));
+  const nodes: FolderNode[] = view.nodes.map(module => {
+    const matchCount = focus.matchCounts?.get(module.folder) ?? null;
+    const focused = focus.folders.has(module.folder);
+    const hoverVisible = matchingFiles === null && (hovered?.kind === "folder" ? hovered.id === module.folder : module.files.some(file => file.path === hovered?.id));
+    return {
+      id: module.id, type: "folder", position: module.position,
+      width: module.width, height: module.height,
+      // React Flow disables pointer events when dragging and built-in selection
+      // are off; the folder's own buttons still need to receive clicks.
+      style: { width: module.width, height: module.height, pointerEvents: "all", opacity: focused || hoverVisible ? 1 : 0.18 },
+      data: { module, focusedFiles: focus.files, focused, matchCount,
+        selectedFile: selection?.kind === "file" ? selection.id : null,
+        active: selection?.kind === "folder" ? selection.id === module.folder : module.files.some(file => file.path === selection?.id),
+        hovered, onHover, toggle: onToggle, selectFile: onSelectFile },
+    };
+  });
   const edges: Edge[] = view.edges.map(edge => {
     const incident = edge.imports.filter(item => focus.selected.has(item.from) || focus.selected.has(item.to));
     const color = !selection || incident.length === 0 ? "var(--fg-muted)" : incident.some(item => focus.selected.has(item.from)) ? "var(--outgoing)" : "var(--incoming)";
+    const matches = matchingFiles === null || edge.imports.some(item => matchingFiles.has(item.from) && matchingFiles.has(item.to));
     return { ...edge, type: edge.source === edge.target ? "local" : "default", selectable: false, focusable: false,
       markerEnd: { type: MarkerType.ArrowClosed, color, width: 12, height: 12 },
       style: { stroke: color, strokeWidth: selection && incident.length > 0 ? 1.2 : 0.75,
-        opacity: !selection ? 0.3 : incident.length > 0 ? 1 : 0.06 },
+        opacity: matchingFiles !== null ? matches ? 0.3 : 0.06 : !selection ? 0.3 : incident.length > 0 ? 1 : 0.06 },
       ariaLabel: edge.imports.map(item => `${item.from} imports ${item.to}`).join("; "),
     };
   });
@@ -197,7 +206,7 @@ function Canvas({ analysis, modules, expanded, selection, hovered, onHover, onSe
   return (
     <div className="dependency-map flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line px-3 text-[11px] text-muted">
-        <span className="font-mono text-fg">ts-morph / compiler</span>
+        <span className="font-mono text-fg">{name}</span>
         <span className="ml-auto tabular-nums">{analysis.files.length} files · {modules.length} folders</span>
       </div>
       <div className="min-h-0 flex-1">

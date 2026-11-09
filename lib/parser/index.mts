@@ -107,8 +107,11 @@ export const fallbackAdapter: ParserAdapter = {
   },
 };
 
-async function walk(root: string): Promise<string[]> {
+/** Finds source candidates in selected directories and records source symlinks as skipped without following them. */
+async function walk(root: string) {
   const found: string[] = [];
+  const skipped: SkippedFile[] = [];
+  /** Descends only into real, permitted directories, preventing symlink loops and keeping skipped paths relative to the root. */
   async function visit(directory: string): Promise<void> {
     const entries = await opendir(directory);
     for await (const entry of entries) {
@@ -116,11 +119,13 @@ async function walk(root: string): Promise<string[]> {
         await visit(path.join(directory, entry.name));
       } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
         found.push(path.join(directory, entry.name));
+      } else if (entry.isSymbolicLink() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+        skipped.push({ path: relative(root, path.join(directory, entry.name)), reason: "Symbolic link is not followed" });
       }
     }
   }
   await visit(root);
-  return found.sort();
+  return { candidates: found.sort(), skipped };
 }
 
 function relative(root: string, file: string): string {
@@ -158,9 +163,11 @@ export function calculateDegrees(files: readonly ParsedFile[], edges: readonly E
   return degrees;
 }
 
+/** Parses a local directory into file facts, resolved import edges and coverage; invalid compiler configuration fails rather than guessing. */
 export async function parseRepository(directory: string, adapter: ParserAdapter = fallbackAdapter): Promise<ParseResult> {
   const root = path.resolve(directory);
-  const candidates = await walk(root);
+  const { candidates, skipped } = await walk(root);
+  const filesFound = candidates.length + skipped.length;
   const optionsByDirectory = new Map<string, ts.CompilerOptions>();
   function optionsForDirectory(directory: string): ts.CompilerOptions {
     const cached = optionsByDirectory.get(directory);
@@ -174,7 +181,6 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
   optionsForDirectory(root);
   const project = new Project({ compilerOptions: readCompilerOptions(), skipAddingFilesFromTsConfig: true });
   const files: ParsedFile[] = [];
-  const skipped: SkippedFile[] = [];
 
   for (const absolute of candidates) {
     const file = relative(root, absolute);
@@ -304,7 +310,7 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
     edges,
     imports,
     coverage: {
-      filesFound: candidates.length,
+      filesFound,
       filesParsed: files.length,
       filesSkipped: skipped.length,
       skipped,

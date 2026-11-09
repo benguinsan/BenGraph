@@ -4,13 +4,16 @@ import { useId, useState } from "react";
 import type { ParseResult } from "@/lib/parser/index.mts";
 import { compare, type FoldedModule } from "@/lib/graph/folding.mts";
 import type { repositoryStructure } from "@/lib/graph/details.mts";
+import { walkGraph, type repositoryInsights, type WalkDirection } from "@/lib/graph/analysis.mts";
 import type { Selection } from "@/lib/graph/view.mts";
+import { InsightsPanel } from "./insights-panel";
 
 interface DetailProps {
   analysis: ParseResult;
   name: string;
   modules: readonly FoldedModule[];
   structure: ReturnType<typeof repositoryStructure>;
+  insights: ReturnType<typeof repositoryInsights>;
   selection: Selection;
   hovered: Selection;
   onHover: (selection: Selection) => void;
@@ -18,12 +21,17 @@ interface DetailProps {
 }
 
 /** Shows repository, folder or file facts from browser data while preserving the selected tab. */
-export function DetailPane({ analysis, name, modules, structure, selection, hovered, onHover, onSelectFile }: DetailProps) {
+export function DetailPane({ analysis, name, modules, structure, insights, selection, hovered, onHover, onSelectFile }: DetailProps) {
   const [tab, setTab] = useState<"structure" | "explanation">("structure");
+  const [walk, setWalk] = useState<{ path: string; direction: WalkDirection } | null>(null);
   const id = useId();
   const file = selection?.kind === "file" ? analysis.files.find(file => file.path === selection.id) : undefined;
   const folder = selection?.kind === "folder" ? modules.find(module => module.folder === selection.id) : undefined;
   const neighbours = file ? structure.neighbours.get(file.path) : undefined;
+  const direction = file && walk?.path === file.path ? walk.direction : null;
+  const walked = file && direction ? walkGraph(structure.neighbours, file.path, direction, structure.neighbours.size) : [];
+  const nearby = walked.filter(row => row.depth <= 2);
+  const further = walked.length - nearby.length;
   const hoveredFolder = hovered?.kind === "folder" ? modules.find(module => module.folder === hovered.id) : undefined;
   /** Matches a path against the hovered file or the members of the hovered folded folder. */
   const isHighlighted = (path: string) => hovered?.kind === "file" ? hovered.id === path : hoveredFolder?.files.some(file => file.path === path) ?? false;
@@ -93,7 +101,7 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
           )}
         </>}
       </div>
-      <div role="tablist" aria-label="Detail view" className="flex h-9 shrink-0 border-b border-line">
+      {selection && <div role="tablist" aria-label="Detail view" className="flex h-9 shrink-0 border-b border-line">
         {(["structure", "explanation"] as const).map(value => (
           <button key={value} type="button" role="tab" id={`${id}-${value}`} aria-controls={`${id}-panel`}
             aria-selected={tab === value} tabIndex={tab === value ? 0 : -1}
@@ -109,9 +117,10 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
             {value}
           </button>
         ))}
-      </div>
-      <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${tab}`} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-2 focus-visible:outline-accent">
-        {tab === "explanation" ? (
+      </div>}
+      <div role={selection ? "tabpanel" : "region"} id={`${id}-panel`} aria-labelledby={selection ? `${id}-${tab}` : undefined}
+        aria-label={selection ? undefined : "Repository summary"} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-2 focus-visible:outline-accent">
+        {selection && tab === "explanation" ? (
           <p className="px-3 py-3 text-muted">No explanation yet. Explanations will appear here when model calls are available.</p>
         ) : file && neighbours ? (
           <>
@@ -126,7 +135,35 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
               <dt className="text-muted">Depends on</dt><dd><span className="tabular-nums text-outgoing">{neighbours.dependencies.length}</span> files</dd>
               <dt className="text-muted">Depended on by</dt><dd><span className="tabular-nums text-incoming">{neighbours.dependents.length}</span> files</dd>
             </dl>
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {(["dependents", "dependencies"] as const).map(value => <button key={value} type="button" aria-pressed={direction === value}
+                className={`cursor-pointer rounded-sm border px-2 py-1 text-[11px] hover:border-accent focus-visible:outline-2 focus-visible:outline-accent ${direction === value ? "border-accent bg-accent/10 text-accent" : "border-line"}`}
+                onClick={() => setWalk(direction === value ? null : { path: file.path, direction: value })}>
+                {value === "dependents" ? "Blast radius" : "Dependency chain"}
+              </button>)}
+            </div>
             <div className="space-y-2 py-2">
+              {direction && <section aria-label={direction === "dependents" ? "Blast radius" : "Dependency chain"} className="py-2">
+                <h3 className="grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-start gap-x-3 px-3 text-[12px] font-medium">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{direction === "dependents" ? "Blast radius" : "Dependency chain"}</span>
+                  <span className="min-w-0 text-[11px] font-normal text-muted [overflow-wrap:anywhere]">
+                    {direction === "dependents" ? "what imports this, directly or through others" : "what this imports, directly or through others"}
+                  </span>
+                  <span className={`text-right whitespace-nowrap tabular-nums ${direction === "dependents" ? "text-incoming" : "text-outgoing"}`}>{nearby.length}</span>
+                </h3>
+                {nearby.length === 0 ? <p className="px-3 pt-1 text-[11px] text-muted">None.</p> : [1, 2].map(depth => {
+                  const rows = nearby.filter(row => row.depth === depth);
+                  return rows.length > 0 && <div key={depth} className="pt-2">
+                    <h4 className="px-3 text-[11px] font-normal text-muted">{`${depth} ${depth === 1 ? "step" : "steps"} away · ${rows.length}`}</h4>
+                    <ul className="pt-1">
+                      {rows.map(row => <li key={row.path} className={`flex items-baseline gap-2 px-3 py-1 ${isHighlighted(row.path) ? "bg-accent/10" : ""}`}>
+                        {pathButton(row.path, true)}
+                      </li>)}
+                    </ul>
+                  </div>;
+                })}
+                {further > 0 && <p className="px-3 pt-2 text-[11px] text-muted">{further} more further than 2 steps, not listed.</p>}
+              </section>}
               {paths("Imports", neighbours.dependencies.map(path => ({ path })), undefined, "outgoing")}
               {paths("Imported by", neighbours.dependents.map(path => ({ path })), undefined, "incoming")}
             </div>
@@ -199,6 +236,7 @@ export function DetailPane({ analysis, name, modules, structure, selection, hove
           </>
         )}
       </div>
+      <InsightsPanel insights={insights} renderPath={path => pathButton(path, true)} />
     </aside>
   );
 }
