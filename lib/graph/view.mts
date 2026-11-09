@@ -107,6 +107,7 @@ export function buildView(modules: readonly FoldedModule[], imports: readonly Ed
   return { nodes, edges };
 }
 
+/** Derives selection focus or category matches and per-panel counts without removing any files or edges from the layout. */
 export function focusGraph(modules: readonly FoldedModule[], edges: readonly Edge[], selection: Selection, matchingFiles: ReadonlySet<string> | null = null) {
   const selected = new Set(selection?.kind === "file" ? [selection.id] : modules.find(m => m.folder === selection?.id)?.files.map(f => f.path));
   const imports = selection ? edges.filter(edge => selected.has(edge.from) || selected.has(edge.to)) : [...edges];

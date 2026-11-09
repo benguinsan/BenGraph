@@ -18,6 +18,11 @@ import type { DetailPane } from "../components/detail-pane.tsx";
 import type { InsightsPanel } from "../components/insights-panel.tsx";
 import type { ThemeControl } from "../components/theme-control.tsx";
 
+const theme: { THEME_KEY?: string; themeScript?: string } = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL("../lib/theme.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS },
+}).outputText, { exports: theme });
+
 const hooks = {
   useState: (initial: unknown) => [initial, () => {}],
   useId: () => "details",
@@ -25,13 +30,13 @@ const hooks = {
   useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
 };
 
-// Node cannot load TSX directly; evaluate the real components with explicit hook snapshots, without a browser.
+/** Evaluates real TSX components with explicit hook snapshots in Node, failing on missing dependencies instead of requiring a browser. */
 function loadComponent(name: string, imports: Record<string, unknown> = {}, globals: Record<string, unknown> = {}) {
   const exported: { DetailPane?: typeof DetailPane; InsightsPanel?: typeof InsightsPanel; ThemeControl?: typeof ThemeControl } = {};
   const modules: Record<string, unknown> = {
     react: hooks, "react/jsx-runtime": jsxRuntime,
     "@/lib/graph/analysis.mts": graph, "@/lib/graph/folding.mts": folding,
-    "@/lib/theme": { THEME_KEY: "theme" },
+    "@/lib/theme": theme,
     ...imports,
   };
   const source = readFileSync(new URL(`../components/${name}.tsx`, import.meta.url), "utf8");
@@ -45,6 +50,24 @@ function loadComponent(name: string, imports: Record<string, unknown> = {}, glob
     ...globals,
   });
   return exported;
+}
+
+/** Finds an accessible theme button in the rendered control and invokes its actual selection handler. */
+function clickTheme(control: ReactNode, label: string) {
+  assert.ok(isValidElement<{ children: ReactNode }>(control));
+  const button = Children.toArray(control.props.children).find(child => isValidElement<{ "aria-label": string }>(child) && child.props["aria-label"] === label);
+  assert.ok(isValidElement<{ onClick: () => void }>(button));
+  button.props.onClick();
+}
+
+/** Keeps storage values across simulated page reloads while supplying the browser methods used by theme persistence. */
+function storage(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  };
 }
 
 test("deselecting shows the repository summary while retaining Explanation for the next file", () => {
@@ -70,15 +93,59 @@ test("deselecting shows the repository summary while retaining Explanation for t
 test("theme mount and clicks still work when storage reads and writes throw", () => {
   const document = { documentElement: { dataset: { theme: "dark" } } };
   const blocked = () => { throw new Error("Storage blocked"); };
-  const components = loadComponent("theme-control", {}, { document, localStorage: { getItem: blocked, setItem: blocked } });
+  const components = loadComponent("theme-control", {}, {
+    document, localStorage: { getItem: blocked, setItem: blocked },
+    sessionStorage: { getItem: blocked, setItem: blocked, removeItem: blocked },
+  });
   assert.ok(components.ThemeControl);
   const control: ReactNode = components.ThemeControl();
   assert.equal(document.documentElement.dataset.theme, "system");
-  assert.ok(isValidElement<{ children: ReactNode }>(control));
-  const dark = Children.toArray(control.props.children).find(child => isValidElement<{ "aria-label": string }>(child) && child.props["aria-label"] === "Dark");
-  assert.ok(isValidElement<{ onClick: () => void }>(dark));
-  dark.props.onClick();
+  clickTheme(control, "Dark");
   assert.equal(document.documentElement.dataset.theme, "dark");
+});
+
+test("failed theme writes survive reload and override old localStorage values or the default", () => {
+  assert.ok(theme.themeScript);
+  for (const entry of [
+    { old: "light", label: "Dark", expected: "dark" },
+    { old: "dark", label: "Match system", expected: "system" },
+    { old: null, label: "Light", expected: "light" },
+  ]) {
+    const localStorage = {
+      getItem: () => entry.old,
+      setItem: () => { throw new Error("Quota exceeded"); },
+    };
+    const sessionStorage = storage();
+    const document = { documentElement: { dataset: { theme: "system" } } };
+    const components = loadComponent("theme-control", {}, { document, localStorage, sessionStorage });
+    assert.ok(components.ThemeControl);
+    clickTheme(components.ThemeControl(), entry.label);
+    assert.equal(document.documentElement.dataset.theme, entry.expected);
+
+    const reloaded = { documentElement: { dataset: { theme: "system" } } };
+    vm.runInNewContext(theme.themeScript, { document: reloaded, localStorage, sessionStorage });
+    assert.equal(reloaded.documentElement.dataset.theme, entry.expected, "head script reads the newest choice");
+    const mounted = loadComponent("theme-control", {}, { document: reloaded, localStorage, sessionStorage });
+    assert.ok(mounted.ThemeControl);
+    mounted.ThemeControl();
+    assert.equal(reloaded.documentElement.dataset.theme, entry.expected, "mount retains the fallback choice");
+  }
+});
+
+test("a later successful localStorage write replaces an older session fallback", () => {
+  assert.ok(theme.themeScript);
+  const localStorage = storage({ theme: "light" });
+  const sessionStorage = storage({ theme: "dark" });
+  const document = { documentElement: { dataset: { theme: "system" } } };
+  const components = loadComponent("theme-control", {}, { document, localStorage, sessionStorage });
+  assert.ok(components.ThemeControl);
+  const control = components.ThemeControl();
+  assert.equal(document.documentElement.dataset.theme, "dark");
+  clickTheme(control, "Match system");
+  assert.equal(localStorage.getItem("theme"), "system");
+  const reloaded = { documentElement: { dataset: { theme: "light" } } };
+  vm.runInNewContext(theme.themeScript, { document: reloaded, localStorage, sessionStorage });
+  assert.equal(reloaded.documentElement.dataset.theme, "system");
 });
 
 test("cycle summary renders the shared selectable file path", () => {

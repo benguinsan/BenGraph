@@ -5,6 +5,7 @@ import { HIGH_FAN_IN, LONG_FILE_LINES, type repositoryInsights } from "@/lib/gra
 
 type RenderPath = (path: string) => ReactNode;
 
+/** Shows a selectable cycle entry and mounts its complete, ordered import path only when expanded. */
 function Cycle({ cycle, renderPath }: { cycle: readonly string[]; renderPath: RenderPath }) {
   const [open, setOpen] = useState(false);
   return (
@@ -23,9 +24,11 @@ function Cycle({ cycle, renderPath }: { cycle: readonly string[]; renderPath: Re
   );
 }
 
+/** Keeps factual insights collapsed initially and prevents nested cycle disclosures from changing the panel's open state. */
 export function InsightsPanel({ insights, renderPath }: { insights: ReturnType<typeof repositoryInsights>; renderPath: RenderPath }) {
   const [open, setOpen] = useState(false);
 
+  /** Lists every matching path with its optional measured count, explicitly reporting empty insight groups. */
   function files(title: string, sentence: string, rows: readonly { path: string; count: number }[], unit?: string) {
     return <section className="border-t border-line py-2">
       <h3 className="flex gap-2 px-3 text-[12px] font-medium">{title}<span className="ml-auto tabular-nums text-muted">{rows.length}</span></h3>

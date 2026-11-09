@@ -5,7 +5,14 @@ import { THEME_KEY } from "@/lib/theme";
 
 type Theme = "system" | "light" | "dark";
 
+/** Resolves a valid session fallback before persistent storage; unavailable or invalid values fall back to the system. */
 function storedTheme(): Theme {
+  try {
+    const fallback = sessionStorage.getItem(THEME_KEY);
+    if (fallback === "light" || fallback === "dark" || fallback === "system") return fallback;
+  } catch {
+    // Persistent storage may still be available when session storage is blocked.
+  }
   try {
     const value = localStorage.getItem(THEME_KEY);
     return value === "light" || value === "dark" ? value : "system";
@@ -14,12 +21,18 @@ function storedTheme(): Theme {
   }
 }
 
+/** Applies the choice immediately, persisting it locally or in this tab and clearing stale fallbacks after successful writes. */
 function chooseTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   try {
     localStorage.setItem(THEME_KEY, theme);
+    sessionStorage.removeItem(THEME_KEY);
   } catch {
-    // Storage can be blocked; the current page can still use the chosen theme.
+    try {
+      sessionStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // If both stores are blocked, only the current page can retain the choice.
+    }
   }
 }
 

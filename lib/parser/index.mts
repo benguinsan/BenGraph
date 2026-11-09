@@ -107,9 +107,11 @@ export const fallbackAdapter: ParserAdapter = {
   },
 };
 
+/** Finds source candidates in selected directories and records source symlinks as skipped without following them. */
 async function walk(root: string) {
   const found: string[] = [];
   const skipped: SkippedFile[] = [];
+  /** Descends only into real, permitted directories, preventing symlink loops and keeping skipped paths relative to the root. */
   async function visit(directory: string): Promise<void> {
     const entries = await opendir(directory);
     for await (const entry of entries) {
@@ -161,6 +163,7 @@ export function calculateDegrees(files: readonly ParsedFile[], edges: readonly E
   return degrees;
 }
 
+/** Parses a local directory into file facts, resolved import edges and coverage; invalid compiler configuration fails rather than guessing. */
 export async function parseRepository(directory: string, adapter: ParserAdapter = fallbackAdapter): Promise<ParseResult> {
   const root = path.resolve(directory);
   const { candidates, skipped } = await walk(root);

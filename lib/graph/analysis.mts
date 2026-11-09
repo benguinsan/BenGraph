@@ -61,6 +61,7 @@ export function importCycles(neighbours: Neighbours): string[][] {
   return cycles;
 }
 
+/** Derives factual insight groups from resolved imports and file metadata, excluding conventional entry files from unimported results. */
 export function repositoryInsights(files: readonly ParsedFile[], edges: readonly Edge[]) {
   const structure = repositoryStructure(files, edges);
   return {
@@ -72,6 +73,7 @@ export function repositoryInsights(files: readonly ParsedFile[], edges: readonly
   };
 }
 
+/** Groups actual file paths by extension in deterministic order; absent extensions never acquire fabricated counts. */
 export function fileCategories(files: readonly ParsedFile[]) {
   const categories = new Map<string, Set<string>>();
   for (const file of [...files].sort((a, b) => compare(a.path, b.path))) {
