@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { opendir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { isBuiltin } from "node:module";
@@ -170,15 +171,25 @@ function readCompilerOptions(root: string, config?: string): ts.CompilerOptions 
   if (!config) {
     return { allowJs: true, resolveJsonModule: true, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext };
   }
-  const read = ts.readConfigFile(config, ts.sys.readFile);
+  const realRoot = realpathSync(root);
+  function readConfig(file: string): string | undefined {
+    const absolute = path.resolve(file);
+    if (!isInside(root, absolute)) throw new Error(`Compiler configuration references a file outside the repository: ${file}`);
+    let resolved: string;
+    try {
+      resolved = realpathSync(absolute);
+    } catch (error) {
+      if (isRecord(error) && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+    if (!isInside(realRoot, resolved)) throw new Error(`Compiler configuration references a file outside the repository: ${file}`);
+    return ts.sys.readFile(resolved);
+  }
+  const read = ts.readConfigFile(config, readConfig);
   if (read.error) throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, "\n"));
   const parsed = ts.parseJsonConfigFileContent(read.config, {
     ...ts.sys,
-    readFile(file) {
-      // Downloaded config must never read files from the application's host.
-      if (!isInside(root, path.resolve(file))) throw new Error(`Compiler configuration references a file outside the repository: ${file}`);
-      return ts.sys.readFile(file);
-    },
+    readFile: readConfig,
   }, path.dirname(config), { allowJs: true });
   if (parsed.errors.length > 0) throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
   return { ...parsed.options, allowJs: true };

@@ -5,9 +5,65 @@ import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ts } from "ts-morph";
 import { parseRepository, readParseResult } from "../lib/parser/index.mts";
 
 const run = promisify(execFile);
+
+for (const kind of ["tsconfig.json", "jsconfig.json", "inherited file", "inherited directory"] as const) {
+  test(`rejects compiler configuration escaping through a symlink: ${kind}`, async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "cartograph-config-symlink-"));
+    try {
+      const root = path.join(parent, "repo");
+      await mkdir(root);
+      await writeFile(path.join(parent, "outside.json"), '{"compilerOptions":{"strict":true}}');
+      await writeFile(path.join(root, "main.ts"), "export const value = 1;");
+      if (kind === "inherited directory") {
+        await symlink(parent, path.join(root, "configs"), "dir");
+        await writeFile(path.join(root, "tsconfig.json"), '{"extends":"./configs/outside.json"}');
+      } else if (kind === "inherited file") {
+        await symlink("../outside.json", path.join(root, "base.json"));
+        await writeFile(path.join(root, "tsconfig.json"), '{"extends":"./base.json"}');
+      } else {
+        await symlink("../outside.json", path.join(root, kind));
+      }
+      await assert.rejects(parseRepository(root), /outside the repository/);
+    } finally { await rm(parent, { recursive: true, force: true }); }
+  });
+}
+
+test("allows internal config symlinks when the repository path itself is a symlink", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "cartograph-config-internal-"));
+  try {
+    const root = path.join(parent, "repo");
+    await mkdir(root);
+    await writeFile(path.join(root, "base.json"), '{"compilerOptions":{"paths":{"@leaf":["./leaf.ts"]}}}');
+    await symlink("base.json", path.join(root, "linked-base.json"));
+    await writeFile(path.join(root, "tsconfig.json"), '{"extends":"./linked-base.json"}');
+    await writeFile(path.join(root, "main.ts"), 'import "@leaf";');
+    await writeFile(path.join(root, "leaf.ts"), "export {};");
+    const alias = path.join(parent, "alias");
+    await symlink(root, alias, "dir");
+    const result = await parseRepository(alias);
+    assert.deepEqual(result.edges.map(edge => [edge.from, edge.to]), [["main.ts", "leaf.ts"]]);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+for (const missing of [true, false]) {
+  test(`config realpath ${missing ? "ENOENT retains missing-file diagnostics" : "ELOOP is reported instead of treated as missing"}`, async (t) => {
+    const root = await mkdtemp(path.join(tmpdir(), "cartograph-config-error-"));
+    try {
+      const base = path.join(root, "base.json");
+      await writeFile(path.join(root, "tsconfig.json"), '{"extends":"./base.json"}');
+      await writeFile(path.join(root, "main.ts"), "export {};");
+      if (!missing) await symlink("base.json", base);
+      const fileExists = ts.sys.fileExists;
+      // Reproduce a config disappearing or becoming a loop between discovery and read.
+      t.mock.method(ts.sys, "fileExists", (file: string) => file === base || fileExists(file));
+      await assert.rejects(parseRepository(root), missing ? /Cannot read file/ : /ELOOP/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
 
 test("does not read inherited compiler configuration outside the repository", async () => {
   const parent = await mkdtemp(path.join(tmpdir(), "cartograph-config-boundary-"));

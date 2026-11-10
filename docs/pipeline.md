@@ -22,6 +22,14 @@ organization as `CARTOGRAPH_ACCESS_TOKEN` in the process environment. It is used
 only for authenticated database access; never use a service-role key or commit
 the token.
 
+The CLI validates that the JWT has a positive finite numeric `exp` claim and
+has not expired before creating its database client. It warns how many seconds
+remain: the CLI reuses this token and cannot renew it, so its remaining lifetime
+may limit the run. Obtain a fresh token immediately before starting. If it
+expires during analysis, storing results or recording failure may fail, leaving
+the run stale. Use the app's renewable server-run path for longer analyses.
+This local expiry check does not verify the signature; Supabase still does that.
+
 ```sh
 pnpm analyse:repo https://github.com/owner/repository
 ```

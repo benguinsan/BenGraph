@@ -28,7 +28,9 @@ No edges are emitted to skipped files.
 
 Resolution uses the nearest `tsconfig.json` or `jsconfig.json` inside the input
 directory, including inherited compiler options inside that directory. Config
-inheritance outside the repository is refused. Invalid configuration fails the
+reads outside the repository are refused, checking both lexical and real paths
+for initial and inherited configs. Missing configs keep missing-file diagnostics;
+other realpath failures are reported. Invalid configuration fails the
 command. Imports and re-exports retain a record even when no edge can be emitted.
 Both quoted strings and template literals without substitutions resolve as
 static dynamic imports; computed expressions remain unresolved with a reason.
