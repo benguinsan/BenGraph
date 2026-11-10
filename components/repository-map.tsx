@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { ParseResult } from "@/lib/parser/index.mts";
+import type { StoredAnalysis } from "@/lib/parser/index.mts";
 import { foldFiles } from "@/lib/graph/folding.mts";
 import { repositoryStructure } from "@/lib/graph/details.mts";
 import { fileCategories, repositoryInsights } from "@/lib/graph/analysis.mts";
@@ -9,8 +9,8 @@ import type { Selection } from "@/lib/graph/view.mts";
 import { DependencyMap } from "./dependency-map";
 import { DetailPane } from "./detail-pane";
 
-/** Shares local selection, hover and expansion between the map, optional example buttons and detail pane. */
-export function RepositoryMap({ analysis, name, examples = [] }: { analysis: ParseResult; name: string; examples?: readonly string[] }) {
+/** Shares local selection, hover and expansion between the stored map and detail pane. */
+export function RepositoryMap({ analysis, name }: { analysis: StoredAnalysis; name: string }) {
   const [selection, setSelection] = useState<Selection>(null);
   const [hovered, setHovered] = useState<Selection>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -61,27 +61,6 @@ export function RepositoryMap({ analysis, name, examples = [] }: { analysis: Par
         {category !== null && <p className="border-t border-line px-3 py-2 text-[11px] text-muted">Panel counts show matched / total files. Click the category again to clear.</p>}
       </aside>
       <section aria-label="Dependency map" className="flex min-h-0 min-w-0 flex-col">
-        {examples.length > 0 && (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-[11px]">
-            <span className="text-muted">Real examples</span>
-            {examples.map(path => {
-              const neighbours = structure.neighbours.get(path);
-              if (!neighbours) throw new Error(`Example file is missing: ${path}`);
-              const selected = selection?.kind === "file" && selection.id === path;
-              return (
-                <button key={path} type="button" title={path} aria-label={path} aria-pressed={selected}
-                  className={`flex cursor-pointer items-center gap-2 rounded-sm border px-2 py-1 hover:border-accent focus-visible:outline-2 focus-visible:outline-accent ${selected ? "border-accent bg-accent/10" : "border-line bg-raised"}`}
-                  onClick={() => selectFile(path)}
-                  onMouseEnter={() => setHovered({ kind: "file", id: path })} onMouseLeave={() => setHovered(null)}
-                  onFocus={() => setHovered({ kind: "file", id: path })} onBlur={() => setHovered(null)}>
-                  <span className="font-mono">{path.slice(path.lastIndexOf("/") + 1)}</span>
-                  <span className="tabular-nums text-incoming" title="Dependents">←{neighbours.dependents.length}</span>
-                  <span className="tabular-nums text-outgoing" title="Imports">{neighbours.dependencies.length}→</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
         <div className="min-h-0 flex-1">
           <DependencyMap analysis={analysis} name={name} modules={folded.modules} expanded={expanded}
             matchingFiles={matchingFiles}

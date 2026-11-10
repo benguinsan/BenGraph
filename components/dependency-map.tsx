@@ -5,13 +5,14 @@ import {
   BaseEdge, Controls, getViewportForBounds, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider,
   useReactFlow, useStore, useUpdateNodeInternals, type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
-import type { ParseResult } from "@/lib/parser/index.mts";
+import type { StoredAnalysis } from "@/lib/parser/index.mts";
 import type { FoldedModule } from "@/lib/graph/folding.mts";
-import { buildView, focusGraph, localEdgePath, ROW_HEIGHT, rowViewport, viewBounds, type Selection, type ViewNode } from "@/lib/graph/view.mts";
+import { buildView, focusGraph, localEdgePath, ROW_HEIGHT, rowViewport, viewBounds, type LayoutDirection, type Selection, type ViewNode } from "@/lib/graph/view.mts";
 import "@xyflow/react/dist/style.css";
 
 type FolderNode = Node<{
   module: ViewNode;
+  direction: LayoutDirection;
   focusedFiles: ReadonlySet<string>;
   selectedFile: string | null;
   hovered: Selection;
@@ -100,10 +101,10 @@ function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
 
 /** Renders a folded folder or its file rows while reporting selection and hover to the shared explorer. */
 function FolderPanel({ id, data }: NodeProps<FolderNode>) {
-  const { module, active, toggle, hovered, onHover, matchCount } = data;
+  const { module, direction, active, toggle, hovered, onHover, matchCount } = data;
   const highlighted = hovered?.kind === "folder" ? hovered.id === module.folder : module.files.some(file => file.path === hovered?.id);
   const updateNodeInternals = useUpdateNodeInternals();
-  useEffect(() => { updateNodeInternals(id); }, [id, module.expanded, module.width, module.height, updateNodeInternals]);
+  useEffect(() => { updateNodeInternals(id); }, [id, direction, module.expanded, module.width, module.height, updateNodeInternals]);
   return (
     <div className={`folder-panel h-full w-full rounded-sm border bg-raised ${active || highlighted ? "border-accent" : "border-line"}`}>
       <button
@@ -129,7 +130,10 @@ function FolderPanel({ id, data }: NodeProps<FolderNode>) {
           <span className="text-outgoing" title="Distinct files imported outside this folder">{module.fanOut}→</span>
         </span>
       </button>
-      {!module.expanded && <Ports name="folder" top={module.headerHeight / 2} />}
+      {!module.expanded && <>
+        <Handle type="target" position={direction === "TB" ? Position.Top : Position.Left} id="in:folder" isConnectable={false} />
+        <Handle type="source" position={direction === "TB" ? Position.Bottom : Position.Right} id="out:folder" isConnectable={false} />
+      </>}
       {module.expanded && <FolderRows id={id} data={data} />}
     </div>
   );
@@ -142,7 +146,7 @@ function LocalImportEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, st
 const edgeTypes = { local: LocalImportEdge };
 
 interface MapProps {
-  analysis: ParseResult;
+  analysis: StoredAnalysis;
   name: string;
   modules: readonly FoldedModule[];
   expanded: ReadonlySet<string>;
@@ -157,23 +161,24 @@ interface MapProps {
 
 /** Projects resolved imports onto folder panels and refits changed layouts without zooming in. */
 function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, hovered, onHover, onSelectFile, onToggle, onDeselect }: MapProps) {
+  const [direction, setDirection] = useState<LayoutDirection>("TB");
   const { setViewport, getZoom, viewportInitialized } = useReactFlow<FolderNode>();
   const canvasWidth = useStore(state => state.width);
   const canvasHeight = useStore(state => state.height);
-  const view = useMemo(() => buildView(modules, analysis.edges, expanded), [modules, analysis, expanded]);
-  const fittedView = useRef<typeof view | null>(null);
+  const view = useMemo(() => buildView(modules, analysis.edges, expanded, direction), [modules, analysis, expanded, direction]);
+  const fittedView = useRef<{ view: typeof view; direction: LayoutDirection } | null>(null);
   const focus = useMemo(() => focusGraph(modules, analysis.edges, selection, matchingFiles), [modules, analysis, selection, matchingFiles]);
 
   useEffect(() => {
-    if (!viewportInitialized || canvasWidth <= 0 || canvasHeight <= 0 || fittedView.current === view) return;
+    if (!viewportInitialized || canvasWidth <= 0 || canvasHeight <= 0 || fittedView.current?.view === view) return;
     // These are the new panel dimensions, independent of React Flow's previous
     // measurements. Fitting after render cannot accidentally use the closed box.
     const bounds = viewBounds(view.nodes);
     if (!bounds) return;
-    const maxZoom = fittedView.current ? getZoom() : 1;
-    fittedView.current = view;
+    const maxZoom = fittedView.current?.direction === direction ? getZoom() : 1;
+    fittedView.current = { view, direction };
     void setViewport(getViewportForBounds(bounds, canvasWidth, canvasHeight, 0.01, maxZoom, 0.08), { duration: 0 });
-  }, [view, canvasWidth, canvasHeight, viewportInitialized, setViewport, getZoom]);
+  }, [view, direction, canvasWidth, canvasHeight, viewportInitialized, setViewport, getZoom]);
 
   const nodes: FolderNode[] = view.nodes.map(module => {
     const matchCount = focus.matchCounts?.get(module.folder) ?? null;
@@ -185,7 +190,7 @@ function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, h
       // React Flow disables pointer events when dragging and built-in selection
       // are off; the folder's own buttons still need to receive clicks.
       style: { width: module.width, height: module.height, pointerEvents: "all", opacity: focused || hoverVisible ? 1 : 0.18 },
-      data: { module, focusedFiles: focus.files, focused, matchCount,
+      data: { module, direction, focusedFiles: focus.files, focused, matchCount,
         selectedFile: selection?.kind === "file" ? selection.id : null,
         active: selection?.kind === "folder" ? selection.id === module.folder : module.files.some(file => file.path === selection?.id),
         hovered, onHover, toggle: onToggle, selectFile: onSelectFile },
@@ -207,6 +212,14 @@ function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, h
     <div className="dependency-map flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line px-3 text-[11px] text-muted">
         <span className="font-mono text-fg">{name}</span>
+        <div role="group" aria-label="Layout direction" className="flex shrink-0 rounded-sm border border-line">
+          {([["TB", "Vertical"], ["LR", "Horizontal"]] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={direction === value} onClick={() => setDirection(value)}
+              className={`cursor-pointer px-2 py-1 focus-visible:outline-2 focus-visible:outline-accent ${direction === value ? "bg-accent/10 text-accent" : "hover:text-fg"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <span className="ml-auto tabular-nums">{analysis.files.length} files · {modules.length} folders</span>
       </div>
       <div className="min-h-0 flex-1">

@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Edge, ParsedFile } from "../lib/parser/index.mts";
 import { repositoryStructure } from "../lib/graph/details.mts";
 import { fileCategories, importCycles, repositoryInsights, walkGraph } from "../lib/graph/analysis.mts";
-import { previewAnalysis } from "../data/preview-analysis.mts";
+import { testAnalysis } from "./fixtures/repository.mts";
 
 const file = (path: string, lines = 1): ParsedFile => ({ path, folder: path.slice(0, Math.max(0, path.lastIndexOf("/"))), lines, hash: "fixture", module: "esm", fanIn: 0, fanOut: 0 });
 const edge = (from: string, to: string, kind: Edge["kind"] = "import"): Edge => ({ from, to, kind });
@@ -68,8 +68,8 @@ test("categories count only real files and keep a deterministic order", () => {
   assert.deepEqual(fileCategories([]), new Map());
 });
 
-test("checked-in parser data yields real closed import paths without synthetic edges", () => {
-  const { files, edges } = previewAnalysis;
+test("parsed source yields real closed import paths without synthetic edges", () => {
+  const { files, edges } = testAnalysis;
   const insights = repositoryInsights(files, edges);
   assert.ok(fileCategories(files).has(".ts"));
   assert.ok(fileCategories(files).has(".tsx"));
@@ -79,5 +79,5 @@ test("checked-in parser data yields real closed import paths without synthetic e
     assert.equal(cycle[0], cycle.at(-1));
     for (let i = 1; i < cycle.length; i++) assert.ok(edges.some(item => item.from === cycle[i - 1] && item.to === cycle[i]));
   }
-  console.log(`Preview insights: ${insights.unimported.length} unimported files; ${insights.highFanIn.length} files with ≥10 importers; ${insights.cycles.length} import cycles; ${insights.longFiles.length} files over 500 lines.`);
+  console.log(`Parsed fixture insights: ${insights.unimported.length} unimported files; ${insights.cycles.length} import cycles.`);
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { ParseResult } from "@/lib/parser/index.mts";
+import type { StoredAnalysis } from "@/lib/parser/index.mts";
 import { compare, type FoldedModule } from "@/lib/graph/folding.mts";
 import type { repositoryStructure } from "@/lib/graph/details.mts";
 import { walkGraph, type repositoryInsights, type WalkDirection } from "@/lib/graph/analysis.mts";
@@ -9,7 +9,7 @@ import type { Selection } from "@/lib/graph/view.mts";
 import { InsightsPanel } from "./insights-panel";
 
 interface DetailProps {
-  analysis: ParseResult;
+  analysis: StoredAnalysis;
   name: string;
   modules: readonly FoldedModule[];
   structure: ReturnType<typeof repositoryStructure>;

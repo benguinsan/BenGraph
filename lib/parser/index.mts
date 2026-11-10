@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { opendir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { isBuiltin } from "node:module";
@@ -59,34 +60,63 @@ export interface ParseResult {
   };
 }
 
+export type StoredAnalysis = Omit<ParseResult, "version" | "root">;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string { return typeof value === "string"; }
-function isNumber(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value); }
+function isNumber(value: unknown): value is number { return typeof value === "number" && Number.isInteger(value) && value >= 0; }
 function isKind(value: unknown): value is ImportKind { return value === "import" || value === "re-export" || value === "dynamic-import"; }
 function isStatus(value: unknown): value is ImportStatus { return value === "resolved" || value === "outside" || value === "excluded" || value === "unresolved"; }
 
-function isParseResult(value: unknown): value is ParseResult {
-  if (!isRecord(value) || value.version !== 1 || !isString(value.root) || !Array.isArray(value.files) ||
+function isParsedFile(item: unknown): item is ParsedFile {
+  return isRecord(item) && isString(item.path) && isString(item.folder) &&
+    isNumber(item.lines) && isString(item.hash) && (item.module === "esm" || item.module === "commonjs" || item.module === "script") &&
+    isNumber(item.fanIn) && isNumber(item.fanOut);
+}
+
+function isEdge(item: unknown): item is Edge {
+  return isRecord(item) && isString(item.from) && isString(item.to) && isKind(item.kind);
+}
+
+function isImportRecord(item: unknown): item is ImportRecord {
+  return isRecord(item) && isString(item.from) && isString(item.specifier) && isKind(item.kind) && isStatus(item.status) &&
+    (item.target === undefined || isString(item.target)) && (item.reason === undefined || isString(item.reason)) &&
+    (item.status !== "resolved" || isString(item.target)) && (item.status === "resolved" || isString(item.reason));
+}
+
+/** Validates a persisted analysis without inventing a replacement filesystem root. */
+export function isStoredAnalysis(value: unknown): value is StoredAnalysis {
+  if (!isRecord(value) || !Array.isArray(value.files) ||
       !Array.isArray(value.edges) || !Array.isArray(value.imports) || !isRecord(value.coverage)) {
     return false;
   }
   const coverage = value.coverage;
-  const validFiles = value.files.every((item: unknown) => isRecord(item) && isString(item.path) && isString(item.folder) &&
-    isNumber(item.lines) && isString(item.hash) && (item.module === "esm" || item.module === "commonjs" || item.module === "script") &&
-    isNumber(item.fanIn) && isNumber(item.fanOut));
-  const validEdges = value.edges.every((item: unknown) => isRecord(item) && isString(item.from) && isString(item.to) && isKind(item.kind));
-  const validImports = value.imports.every((item: unknown) => isRecord(item) && isString(item.from) && isString(item.specifier) &&
-    isKind(item.kind) && isStatus(item.status) && (item.target === undefined || isString(item.target)) &&
-    (item.reason === undefined || isString(item.reason)) && (item.status !== "resolved" || isString(item.target)) &&
-    (item.status === "resolved" || isString(item.reason)));
-  const validCoverage = isNumber(coverage.filesFound) && isNumber(coverage.filesParsed) && isNumber(coverage.filesSkipped) &&
+  const files = value.files;
+  const edges = value.edges;
+  if (!files.every(isParsedFile) || !edges.every(isEdge)) return false;
+  const imports = value.imports;
+  if (!imports.every(isImportRecord)) return false;
+  if (!(isNumber(coverage.filesFound) && isNumber(coverage.filesParsed) && isNumber(coverage.filesSkipped) &&
     Array.isArray(coverage.skipped) && coverage.skipped.every((item: unknown) => isRecord(item) && isString(item.path) && isString(item.reason)) &&
     isNumber(coverage.importsSeen) && isNumber(coverage.importsResolved) && isNumber(coverage.importsOutside) &&
-    isNumber(coverage.importsExcluded) && isNumber(coverage.importsUnresolved);
-  return validFiles && validEdges && validImports && validCoverage;
+    isNumber(coverage.importsExcluded) && isNumber(coverage.importsUnresolved))) return false;
+  const paths = new Set(files.map(file => file.path));
+  return paths.size === files.length &&
+    edges.every(edge => paths.has(edge.from) && paths.has(edge.to)) &&
+    coverage.filesParsed === files.length && coverage.filesFound === files.length + coverage.filesSkipped &&
+    coverage.filesSkipped === coverage.skipped.length && coverage.importsSeen === imports.length &&
+    coverage.importsResolved === imports.filter(record => record.status === "resolved").length &&
+    coverage.importsOutside === imports.filter(record => record.status === "outside").length &&
+    coverage.importsExcluded === imports.filter(record => record.status === "excluded").length &&
+    coverage.importsUnresolved === imports.filter(record => record.status === "unresolved").length &&
+    imports.every(record => record.status !== "resolved" || paths.has(record.target ?? ""));
+}
+
+function isParseResult(value: unknown): value is ParseResult {
+  return isRecord(value) && value.version === 1 && isString(value.root) && isStoredAnalysis(value);
 }
 
 export async function readParseResult(file: string): Promise<ParseResult> {
@@ -137,13 +167,30 @@ function isInside(root: string, file: string): boolean {
   return distance !== ".." && !distance.startsWith(`..${path.sep}`) && !path.isAbsolute(distance);
 }
 
-function readCompilerOptions(config?: string): ts.CompilerOptions {
+function readCompilerOptions(root: string, config?: string): ts.CompilerOptions {
   if (!config) {
     return { allowJs: true, resolveJsonModule: true, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext };
   }
-  const read = ts.readConfigFile(config, ts.sys.readFile);
+  const realRoot = realpathSync(root);
+  function readConfig(file: string): string | undefined {
+    const absolute = path.resolve(file);
+    if (!isInside(root, absolute)) throw new Error(`Compiler configuration references a file outside the repository: ${file}`);
+    let resolved: string;
+    try {
+      resolved = realpathSync(absolute);
+    } catch (error) {
+      if (isRecord(error) && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+    if (!isInside(realRoot, resolved)) throw new Error(`Compiler configuration references a file outside the repository: ${file}`);
+    return ts.sys.readFile(resolved);
+  }
+  const read = ts.readConfigFile(config, readConfig);
   if (read.error) throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, "\n"));
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(config), { allowJs: true });
+  const parsed = ts.parseJsonConfigFileContent(read.config, {
+    ...ts.sys,
+    readFile: readConfig,
+  }, path.dirname(config), { allowJs: true });
   if (parsed.errors.length > 0) throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
   return { ...parsed.options, allowJs: true };
 }
@@ -164,22 +211,24 @@ export function calculateDegrees(files: readonly ParsedFile[], edges: readonly E
 }
 
 /** Parses a local directory into file facts, resolved import edges and coverage; invalid compiler configuration fails rather than guessing. */
-export async function parseRepository(directory: string, adapter: ParserAdapter = fallbackAdapter): Promise<ParseResult> {
+export async function parseRepository(directory: string, adapter: ParserAdapter = fallbackAdapter, onSelected?: () => Promise<void>): Promise<ParseResult> {
   const root = path.resolve(directory);
   const { candidates, skipped } = await walk(root);
+  await onSelected?.();
   const filesFound = candidates.length + skipped.length;
   const optionsByDirectory = new Map<string, ts.CompilerOptions>();
   function optionsForDirectory(directory: string): ts.CompilerOptions {
     const cached = optionsByDirectory.get(directory);
     if (cached) return cached;
-    const config = ["tsconfig.json", "jsconfig.json"].map(name => path.join(directory, name)).find(ts.sys.fileExists);
-    const options = config ? readCompilerOptions(config) :
-      directory === root ? readCompilerOptions() : optionsForDirectory(path.dirname(directory));
+    // Downloaded repository configs are runtime inputs, not application assets to deploy.
+    const config = ["tsconfig.json", "jsconfig.json"].map(name => path.join(/* turbopackIgnore: true */ directory, name)).find(ts.sys.fileExists);
+    const options = config ? readCompilerOptions(root, config) :
+      directory === root ? readCompilerOptions(root) : optionsForDirectory(path.dirname(directory));
     optionsByDirectory.set(directory, options);
     return options;
   }
   optionsForDirectory(root);
-  const project = new Project({ compilerOptions: readCompilerOptions(), skipAddingFilesFromTsConfig: true });
+  const project = new Project({ compilerOptions: readCompilerOptions(root), skipAddingFilesFromTsConfig: true });
   const files: ParsedFile[] = [];
 
   for (const absolute of candidates) {

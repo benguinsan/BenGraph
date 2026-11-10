@@ -49,6 +49,12 @@
   either one keeps it, its edges, and whatever those edges connect to at full
   strength, and dims everything else.
 - Layout is deterministic. The same data produces the same picture every time.
+- Offer Vertical and Horizontal controls on the canvas, defaulting to Vertical.
+  Dependencies run top to bottom vertically, or left to right horizontally.
+  Do not repack the dependency layout into a grid. Folded nodes receive and send
+  edges on the corresponding sides; opened panels keep connections beside their
+  file rows. Switching direction fits the graph without animation and preserves
+  opened folders, selection and filters.
 
 ## Constraints
 
@@ -80,3 +86,8 @@
    the numbers say.**
 5. The graph uses the canvas rather than huddling in a corner, and labels are
    readable without zooming.
+6. A chain of folder imports runs from top to bottom. Opening a folder keeps
+   this direction, reconnects edges to file rows, and leaves panels separate.
+7. Switch to Horizontal: the chain runs left to right and folded nodes connect
+   on their left/right sides. Switch back to Vertical. Both views fit the canvas
+   and keep opened folders, selection and filters.

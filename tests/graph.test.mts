@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Edge, ParsedFile } from "../lib/parser/index.mts";
 import { foldFiles, shortestLabels } from "../lib/graph/folding.mts";
 import { buildView, focusGraph, localEdgePath, rowViewport, viewBounds } from "../lib/graph/view.mts";
-import { previewAnalysis } from "../data/preview-analysis.mts";
+import { testAnalysis } from "./fixtures/repository.mts";
 
 function file(path: string): ParsedFile {
   return { path, folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "", lines: 1, hash: "fixture", module: "esm", fanIn: 0, fanOut: 0 };
@@ -80,6 +80,45 @@ test("opening exposes every file to scrolling without growing the panel beyond e
   assert.deepEqual(buildView([...modules].reverse(), [...edges].reverse(), new Set(["a"])), opened);
   assert.ok(opened.edges.every(e => opened.nodes.some(n => n.id === e.source) && opened.nodes.some(n => n.id === e.target)));
   for (const node of opened.nodes) assert.ok(Number.isFinite(node.position.x) && Number.isFinite(node.position.y));
+});
+
+test("dependencies run top to bottom with sibling branches beside each other, including opened panels", () => {
+  const files = ["a/x.ts", "a/y.ts", "b/x.ts", "b/y.ts", "c/x.ts", "c/y.ts", "d/x.ts", "d/y.ts"].map(file);
+  const edges = [edge("a/x.ts", "b/x.ts"), edge("a/x.ts", "c/x.ts"), edge("b/x.ts", "d/x.ts"), edge("c/x.ts", "d/x.ts")];
+  const { modules } = foldFiles(files, edges);
+  for (const expanded of [new Set<string>(), new Set(["b"]), new Set(["a", "b", "c", "d"])]) {
+    const view = buildView(modules, edges, expanded);
+    const byFolder = new Map(view.nodes.map(node => [node.folder, node]));
+    for (const item of edges) {
+      const source = byFolder.get(item.from.split("/")[0])!;
+      const target = byFolder.get(item.to.split("/")[0])!;
+      assert.ok(source.position.y + source.height < target.position.y, `${source.folder} must be above ${target.folder}`);
+    }
+    const b = byFolder.get("b")!;
+    const c = byFolder.get("c")!;
+    assert.equal(b.position.y + b.height / 2, c.position.y + c.height / 2);
+    assert.ok(b.position.x + b.width < c.position.x || c.position.x + c.width < b.position.x);
+    assert.deepEqual(buildView([...modules].reverse(), [...edges].reverse(), expanded), view);
+  }
+});
+
+test("horizontal layout places dependencies left to right without changing files or connections", () => {
+  const files = ["a/x.ts", "a/y.ts", "b/x.ts", "b/y.ts", "c/x.ts", "c/y.ts"].map(file);
+  const edges = [edge("a/x.ts", "b/x.ts"), edge("b/x.ts", "c/x.ts"), edge("b/x.ts", "b/y.ts")];
+  const { modules } = foldFiles(files, edges);
+  for (const expanded of [new Set<string>(), new Set(["b"]), new Set(["a", "b", "c"])]) {
+    const vertical = buildView(modules, edges, expanded);
+    const horizontal = buildView(modules, edges, expanded, "LR");
+    for (const [sourceFolder, targetFolder] of [["a", "b"], ["b", "c"]]) {
+      const source = horizontal.nodes.find(node => node.folder === sourceFolder)!;
+      const target = horizontal.nodes.find(node => node.folder === targetFolder)!;
+      assert.ok(source.position.x + source.width < target.position.x, `${sourceFolder} must be left of ${targetFolder}`);
+    }
+    assert.deepEqual(horizontal.edges, vertical.edges);
+    assert.deepEqual(horizontal.nodes.map(node => ({ ...node, position: null })), vertical.nodes.map(node => ({ ...node, position: null })));
+    assert.deepEqual(buildView([...modules].reverse(), [...edges].reverse(), expanded, "LR"), horizontal);
+    assert.deepEqual(buildView(modules, edges, expanded, "TB"), vertical);
+  }
 });
 
 test("scrolling moves row endpoints and clamps off-screen connections to list boundaries", () => {
@@ -177,8 +216,8 @@ test("internal imports remain visible when off-screen endpoints share a list bou
   }
 });
 
-test("real preview has no singleton folders, lost files, dangling edges or overlapping panels", () => {
-  const { files, edges } = previewAnalysis;
+test("parsed source has no singleton folders, lost files, dangling edges or overlapping panels", () => {
+  const { files, edges } = testAnalysis;
   const folded = foldFiles(files, edges);
   assert.ok(folded.modules.length <= 24);
   assert.ok(folded.modules.every(module => module.files.length > 1));
@@ -206,5 +245,5 @@ test("real preview has no singleton folders, lost files, dangling edges or overl
       }
     }
   }
-  console.log(`Preview: ${files.length} files; ${closed.nodes.length} nodes; ${closed.edges.length} folded edges; minimum ${Math.min(...folded.modules.map(m => m.files.length))} files/node; 0 dangling edges.`);
+  console.log(`Parsed fixture: ${files.length} files; ${closed.nodes.length} nodes; ${closed.edges.length} folded edges; 0 dangling edges.`);
 });

@@ -7,9 +7,11 @@ pnpm parse:repo /path/to/repository --out /tmp/analysis.json
 node --experimental-strip-types --test tests/parser.test.mts
 ```
 
-`parseRepository(directory, adapter?)` returns `ParseResult` from
+`parseRepository(directory, adapter?, onSelected?)` returns `ParseResult` from
 `lib/parser/index.mts`. `readParseResult(filename)` reads and validates the
-version 1 JSON shape. The parser does not clone repositories or access the network.
+version 1 JSON shape. The optional async callback runs after file selection and
+before parsing, so callers can record progress without database imports in the
+parser. The parser does not clone repositories or access the network.
 
 Paths and folders are relative to the input directory, with `/` separators.
 The root folder is `""`. Files carry line counts, SHA-256 hashes, module format
@@ -25,7 +27,10 @@ are listed with skip reasons. Directory links are not traversed.
 No edges are emitted to skipped files.
 
 Resolution uses the nearest `tsconfig.json` or `jsconfig.json` inside the input
-directory, including inherited compiler options. Invalid configuration fails the
+directory, including inherited compiler options inside that directory. Config
+reads outside the repository are refused, checking both lexical and real paths
+for initial and inherited configs. Missing configs keep missing-file diagnostics;
+other realpath failures are reported. Invalid configuration fails the
 command. Imports and re-exports retain a record even when no edge can be emitted.
 Both quoted strings and template literals without substitutions resolve as
 static dynamic imports; computed expressions remain unresolved with a reason.
