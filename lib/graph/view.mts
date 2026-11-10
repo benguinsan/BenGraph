@@ -19,6 +19,7 @@ export function localEdgePath(sourceX: number, sourceY: number, targetX: number,
   return `M ${sourceX} ${sourceY} C ${sourceX + 32} ${sourceY - 12} ${targetX + 32} ${targetY + 12} ${targetX} ${targetY}`;
 }
 export type Selection = { kind: "folder" | "file"; id: string } | null;
+export type LayoutDirection = "TB" | "LR";
 export interface ViewNode extends FoldedModule {
   label: string;
   expanded: boolean;
@@ -47,7 +48,7 @@ export function viewBounds(nodes: readonly Pick<ViewNode, "position" | "width" |
   };
 }
 
-export function buildView(modules: readonly FoldedModule[], imports: readonly Edge[], expanded: ReadonlySet<string>) {
+export function buildView(modules: readonly FoldedModule[], imports: readonly Edge[], expanded: ReadonlySet<string>, direction: LayoutDirection = "TB") {
   const ordered = [...modules].sort((a, b) => compare(a.folder, b.folder));
   const labels = shortestLabels(ordered.flatMap(m => [m.folder, ...(expanded.has(m.folder) ? m.files.map(f => f.path) : [])]));
   const nodes: ViewNode[] = ordered.map(module => {
@@ -79,7 +80,7 @@ export function buildView(modules: readonly FoldedModule[], imports: readonly Ed
   }
   const edges = [...projected.values()];
   const graph = new Graph<GraphLabel, NodeLabel, EdgeLabel>();
-  graph.setGraph({ rankdir: "LR", nodesep: 22, ranksep: 54, marginx: 12, marginy: 12 });
+  graph.setGraph({ rankdir: direction, nodesep: 22, ranksep: 54, marginx: 12, marginy: 12 });
   graph.setDefaultEdgeLabel(() => ({}));
   for (const node of nodes) graph.setNode(node.id, { width: node.width, height: node.height });
   for (const edge of edges) if (edge.source !== edge.target) graph.setEdge(edge.source, edge.target);
@@ -88,21 +89,6 @@ export function buildView(modules: readonly FoldedModule[], imports: readonly Ed
     const placed = graph.node(node.id);
     if (placed.x === undefined || placed.y === undefined) throw new Error(`Layout is missing: ${node.folder}`);
     node.position = { x: placed.x - node.width / 2, y: placed.y - node.height / 2 };
-  }
-  // Dense cycles make long dagre ranks. Pack their dependency order so labels
-  // remain readable when the whole repository is fitted into the canvas.
-  const packingOrder = [...nodes].sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y || compare(a.id, b.id));
-  const columns = Math.ceil(Math.sqrt(nodes.length));
-  const widths = Array.from({ length: columns }, (_, col) => Math.max(...packingOrder.filter((_, index) => index % columns === col).map(n => n.width)));
-  let y = 0;
-  for (let index = 0; index < packingOrder.length; index += columns) {
-    const row = packingOrder.slice(index, index + columns);
-    let x = 0;
-    row.forEach((node, col) => {
-      node.position = { x, y };
-      x += widths[col] + 38;
-    });
-    y += Math.max(...row.map(node => node.height)) + 32;
   }
   return { nodes, edges };
 }

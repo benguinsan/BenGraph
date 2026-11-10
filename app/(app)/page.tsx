@@ -1,6 +1,11 @@
 import { auth } from "@clerk/nextjs/server";
 import { Suspense } from "react";
+import Link from "next/link";
+import { AnalysisStatus } from "@/components/analysis-status";
+import { LiveRefresh } from "@/components/live-refresh";
+import { RepositoryForm } from "@/components/repository-form";
 import { RelativeTime } from "@/components/relative-time";
+import { staleDeadline } from "@/lib/progress.mts";
 import { createSupabaseClient } from "@/lib/supabase";
 
 export default function WorkspacePage() {
@@ -16,10 +21,12 @@ export default function WorkspacePage() {
 // Comes off the session token's claims, so the name is in the server-rendered HTML
 // and nothing asks Clerk a question at request time.
 async function Workspace() {
-  const { sessionClaims } = await auth.protect();
+  const { sessionClaims, orgId } = await auth.protect();
   return (
     <>
       <Heading name={sessionClaims.org_name} />
+      <RepositoryForm />
+      {orgId && <LiveRefresh key={orgId} topic={`organization:${orgId}:analyses`} />}
       <Suspense fallback={<Notice>Loading analyses…</Notice>}>
         <Analyses />
       </Suspense>
@@ -50,7 +57,7 @@ async function Analyses() {
   const supabase = await createSupabaseClient();
   const { data, error } = await supabase
     .from("analyses")
-    .select("id, status, commit_sha, started_at, finished_at, projects(repo_url)")
+    .select("id, status, stage, message, error, created_at, commit_sha, started_at, finished_at, projects(repo_url)")
     .order("created_at", { ascending: false })
     .limit(100);
   if (error) return <Notice tone="danger">Couldn&apos;t load analyses: {error.message}</Notice>;
@@ -74,14 +81,17 @@ async function Analyses() {
         <tbody>
           {data.map((analysis) => {
             const [owner, name] = analysis.projects.repo_url.replace("https://github.com/", "").split("/");
+            const deadline = staleDeadline(analysis.created_at, analysis.started_at);
             return (
               <tr key={analysis.id} className="border-b border-line">
                 <td className="h-8 px-4 font-mono">
-                  <span className="text-muted">{owner}/</span>
-                  {name}
+                  <Link href={`/analyses/${analysis.id}`} className="hover:underline">
+                    <span className="text-muted">{owner}/</span>{name}
+                  </Link>
                 </td>
                 <td className="h-8 px-4">
-                  <Status status={analysis.status} />
+                  <AnalysisStatus status={analysis.status} stage={analysis.stage} deadline={deadline}
+                    message={analysis.error ?? analysis.message} />
                 </td>
                 {/* Empty until the archive is fetched; a run that failed before then has none. */}
                 <td className="h-8 px-4 font-mono text-muted" title={analysis.commit_sha ?? undefined}>
@@ -95,30 +105,6 @@ async function Analyses() {
         </tbody>
       </table>
     </div>
-  );
-}
-
-// Shape carries the state so it reads without colour; only failure is coloured.
-const marks: Record<string, React.ReactNode> = {
-  queued: <circle cx="5" cy="5" r="3.5" fill="none" stroke="currentColor" />,
-  running: (
-    <>
-      <circle cx="5" cy="5" r="3.5" fill="none" stroke="currentColor" />
-      <path d="M5 1.5a3.5 3.5 0 0 1 0 7z" fill="currentColor" />
-    </>
-  ),
-  complete: <circle cx="5" cy="5" r="4" fill="currentColor" />,
-  failed: <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />,
-};
-
-function Status({ status }: { status: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 ${status === "failed" ? "text-danger" : ""}`}>
-      <svg viewBox="0 0 10 10" className={`size-2.5 ${status === "failed" ? "" : "text-muted"}`} aria-hidden>
-        {marks[status]}
-      </svg>
-      {status}
-    </span>
   );
 }
 

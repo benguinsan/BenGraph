@@ -9,6 +9,18 @@ import { parseRepository, readParseResult } from "../lib/parser/index.mts";
 
 const run = promisify(execFile);
 
+test("does not read inherited compiler configuration outside the repository", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "cartograph-config-boundary-"));
+  try {
+    const root = path.join(parent, "repo");
+    await mkdir(root);
+    await writeFile(path.join(parent, "outside.json"), '{"compilerOptions":{"strict":true}}');
+    await writeFile(path.join(root, "tsconfig.json"), '{"extends":"../outside.json"}');
+    await writeFile(path.join(root, "main.ts"), "export const value = 1;");
+    await assert.rejects(parseRepository(root), /outside the repository/);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
 test("counts source symlinks as skipped without following them or emitting their edges", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "cartograph-symlink-"));
   try {

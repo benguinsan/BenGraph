@@ -18,6 +18,9 @@
   something you get by pasting the URL again.
 - A progress page that names the stage as it happens, updated live.
 - The explorer, now reading real stored rows instead of the checked-in file.
+- Background live-refresh connection errors on the dashboard and completed map
+  go to the browser console, without a banner. The active analysis progress page
+  keeps its visible connection warning and manual refresh action.
 - A coverage banner on the map, which says the graph is partial when it is.
 
 ## Constraints
@@ -26,10 +29,9 @@
   Something in the database publishes when the stage moves, and the page
   subscribes. Publish the stage and its message, not the whole row — then the
   page has nothing to filter and nothing to interpret.
-- **The channel has to be declared before anything can publish to it.** A
-  pattern for per-analysis channels is registered as part of the migration,
-  alongside the tables. Publishing to an unregistered channel silently goes
-  nowhere, and the symptom is a progress page that simply never updates.
+- **Declare private topics through receive policies in the migration.** Use
+  `analysis:<uuid>` for progress and organization-scoped topics for dashboard
+  updates. Publish through `realtime.send()`; there is no separate channel registry.
 - Publish from a trigger on our own table. Never attach a trigger to the
   realtime machinery itself.
 - **Who may subscribe is also a policy.** Another organization's analysis
@@ -38,6 +40,9 @@
 - The browser side uses the authenticated client, not a bare one — it needs the
   access token cookie to open the socket, which is why that cookie is readable
   in the first place.
+- Long runs may renew the initiating Clerk session token in the server auth
+  layer, pinned to the original session, user and organization. This is the
+  agreed exception to Phase 01's runtime identity-provider restriction.
 - A run that fails writes _why_ it failed and which stage it failed in.
 - **A run that dies without failing has to be visible too.** Nothing here has a
   queue or a timeout, so a process that stops mid-parse leaves a row that will
@@ -47,6 +52,10 @@
 - The coverage banner may collapse, but it collapses to a single line that
   still names the figure. A graph that is quietly thirty percent complete must
   never be able to look complete.
+- Coverage is `importsResolved / (importsSeen - importsOutside)`. No considered
+  imports means 100%, with the zero denominator visible in the details. Mark
+  **Partial graph** whenever an import is unresolved or excluded, or a file is
+  skipped. The collapsed line retains the percentage and parsed/found file counts.
 - **Delete the checked-in parser output and the preview route as part of this
   phase.** It was scaffolding to build the interface against; analyses are
   stored properly now. Everything built on it keeps working, on live data.
