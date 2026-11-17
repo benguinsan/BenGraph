@@ -140,6 +140,26 @@ test('Next Pages index and dynamic patterns; API methods remain absent', async (
   });
 });
 
+test('Next matches the longest configured page extension regardless of configuration order', async () => {
+  for (const pageExtensions of [['tsx', 'page.tsx'], ['page.tsx', 'tsx']]) {
+    await fixture(next, {
+      'next.config.ts': `export default {pageExtensions: ${JSON.stringify(pageExtensions)}}`,
+      'pages/about.page.tsx': 'export default function About(){return <main/>}',
+      'pages/index.page.tsx': 'export default function Home(){return <main/>}',
+      'pages/plain.tsx': 'export default function Plain(){return <main/>}',
+      'pages/_app.page.tsx': 'export default function App(){return <main/>}',
+    }, async (root, sources) => {
+      const facts = await analyseFramework(root, sources);
+      assert.deepEqual(facts.routes, [
+        {file:'pages/about.page.tsx', method:'GET', path:'/about'},
+        {file:'pages/index.page.tsx', method:'GET', path:'/'},
+        {file:'pages/plain.tsx', method:'GET', path:'/plain'},
+      ]);
+      assert.ok(facts.roles.some(role => role.path === 'pages/_app.page.tsx' && role.role === 'layout'));
+    });
+  }
+});
+
 test('Next literal basePath works and unknown configuration never invents paths', async () => {
   for (const [config, expected] of [
     ['const config = {basePath: "/docs"}; export default config', ['/docs']],
@@ -168,6 +188,46 @@ test('Nest literal decorator aliases compose full paths and suffix roles', async
       {file:'src/cats.controller.ts', method:'POST', path:'/api/cats'},
     ]);
     assert.deepEqual(facts.roles.map(role => role.role).sort(), ['controller','entity','module','service']);
+  });
+});
+
+test('Nest withholds routes when multiple HTTP applications make controller ownership uncertain', async () => {
+  const controllers = {
+    'cats.controller.ts': 'import {Controller, Get} from "@nestjs/common"; @Controller("cats") export class CatsController {@Get() get(){}}',
+    'admin.controller.ts': 'import {Controller, Get} from "@nestjs/common"; @Controller("users") export class AdminController {@Get() get(){}}',
+    'public.module.ts': 'import {Module} from "@nestjs/common"; import {CatsController} from "./cats.controller"; @Module({controllers:[CatsController]}) export class PublicModule {}',
+    'admin.module.ts': 'import {Module} from "@nestjs/common"; import {AdminController} from "./admin.controller"; @Module({controllers:[AdminController]}) export class AdminModule {}',
+  };
+  const imports = 'import {NestFactory} from "@nestjs/core"; import {PublicModule} from "./public.module"; import {AdminModule} from "./admin.module";';
+  const bootstraps: Record<string, string>[] = [
+    { 'main.ts': `${imports} async function bootstrap(){const publicApp = await NestFactory.create(PublicModule); const adminApp = await NestFactory.create(AdminModule); adminApp.setGlobalPrefix("admin");}` },
+    { 'main.ts': `${imports} async function bootstrap(){const adminApp = await NestFactory.create(AdminModule); adminApp.setGlobalPrefix("admin"); const publicApp = await NestFactory.create(PublicModule);}` },
+    { 'main.ts': `${imports} async function bootstrap(){const publicApp = await NestFactory["create"](PublicModule); const adminApp = await NestFactory.create(AdminModule); adminApp.setGlobalPrefix("admin");}` },
+    { 'main.ts': `${imports} import * as core from "@nestjs/core"; async function bootstrap(){const publicApp = await core["NestFactory"].create(PublicModule); const adminApp = await NestFactory.create(AdminModule); adminApp.setGlobalPrefix("admin");}` },
+    {
+      'public-main.ts': 'import {NestFactory as Factory} from "@nestjs/core"; import {PublicModule} from "./public.module"; async function bootstrap(){const app = await Factory.create(PublicModule);}',
+      'admin-main.ts': 'import * as core from "@nestjs/core"; import {AdminModule} from "./admin.module"; async function bootstrap(){const app = await core.NestFactory.create(AdminModule); app.setGlobalPrefix("admin");}',
+    },
+    { 'main.ts': `${imports} async function bootstrap(){await NestFactory.create(PublicModule); await NestFactory.create(AdminModule);}` },
+  ];
+  for (const bootstrap of bootstraps) {
+    await fixture(nest, { ...controllers, ...bootstrap }, async (root, sources) => {
+      const facts = await analyseFramework(root, sources);
+      assert.deepEqual(facts.routes, []);
+      assert.deepEqual(facts.roles, [
+        {path:'admin.controller.ts', role:'controller'}, {path:'admin.module.ts', role:'module'},
+        {path:'cats.controller.ts', role:'controller'}, {path:'public.module.ts', role:'module'},
+      ]);
+    });
+  }
+});
+
+test('Nest single HTTP application keeps its prefix alongside non-HTTP factories', async () => {
+  await fixture(nest, {
+    'cats.controller.ts': 'import {Controller, Get} from "@nestjs/common"; @Controller("cats") class Cats {@Get() get(){}}',
+    'main.ts': 'import {NestFactory} from "@nestjs/core"; import * as other from "./other"; async function bootstrap(){await NestFactory.createApplicationContext(WorkerModule); await NestFactory.createMicroservice(WorkerModule); otherFactory.create(); other["NestFactory"].create(OtherModule); const app = await NestFactory.create(AppModule); app.setGlobalPrefix("api");}',
+  }, async (root, sources) => {
+    assert.deepEqual((await analyseFramework(root, sources)).routes, [{file:'cats.controller.ts', method:'GET', path:'/api/cats'}]);
   });
 });
 
@@ -267,6 +327,7 @@ test('Nest namespace RouterModule references remain uncertain through aliases', 
   const controller = 'import {Controller, Get} from "@nestjs/common"; @Controller("cats") class Cats {@Get() get(){}}';
   for (const imports of [
     'import * as core from "@nestjs/core"; const routing = core.RouterModule;',
+    'import * as core from "@nestjs/core"; const routing = core["RouterModule"];',
     'import {RouterModule as routing} from "@nestjs/core";',
   ]) {
     await fixture(nest, {'cats.controller.ts':controller, 'app.module.ts':`${imports} routing.register([{path:"admin",module:CatsModule}]);`}, async (root,sources) => {

@@ -27,6 +27,8 @@
   full pattern are both recoverable from the parsed syntax with no inference.
   If either has to be guessed, show nothing. A wrong route pattern is the same
   failure as an invented edge.
+- Nest prefixes belong to application instances. Withhold routes when multiple
+  HTTP applications make controller ownership uncertain; retain file roles.
 - Detection runs in a fixed order and the first match wins. A repository
   matching nothing still renders, with generic roles and an empty route table.
 - Select one framework for the whole repository: Next.js, then NestJS, then

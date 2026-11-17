@@ -23,9 +23,75 @@ import type { AnalysisProgress } from "../components/analysis-progress.tsx";
 import type { LiveRefresh } from "../components/live-refresh.tsx";
 import type { RepositoryMap } from "../components/repository-map.tsx";
 import type { RoutesTable } from "../components/routes-table.tsx";
+import type { DependencyMap } from "../components/dependency-map.tsx";
+import { getViewportForBounds, type Viewport } from "@xyflow/react";
+import * as mapView from "../lib/graph/view.mts";
 import * as coverage from "../lib/coverage.mts";
 import * as progress from "../lib/progress.mts";
 import * as taxonomy from "../lib/adapters/taxonomy.mts";
+import type { useAuthenticatedSupabase } from "../lib/supabase-browser.ts";
+
+test("browser Supabase waits for Clerk and replaces clients when the session or organization changes", async () => {
+  const auth = { isLoaded: false, isSignedIn: false, sessionId: null as string | null, orgId: null as string | null,
+    getToken: async (): Promise<string | null> => token };
+  let token: string | null = "session-token";
+  let created = 0;
+  let previous: unknown[] = [];
+  let client: unknown;
+  let accessToken: (() => Promise<string>) | undefined;
+  const exported: { useAuthenticatedSupabase?: typeof useAuthenticatedSupabase } = {};
+  const context = vm.createContext({ exports: exported, window: {}, process: { env: {
+    NEXT_PUBLIC_SUPABASE_URL: "https://database.example", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-key",
+  } }, require(id: string) {
+    if (id === "@clerk/nextjs") return { useAuth: () => auth };
+    if (id === "react") return { useMemo: (calculate: () => unknown, deps: unknown[]) => {
+      if (previous.length !== deps.length || deps.some((dep, index) => dep !== previous[index])) {
+        client = calculate(); previous = deps;
+      }
+      return client;
+    } };
+    if (id === "@supabase/supabase-js") return { createClient: (_url: string, _key: string, options: { accessToken: () => Promise<string> }) => {
+      created++; accessToken = options.accessToken; return options;
+    } };
+    throw new Error(`Missing test dependency: ${id}`);
+  } });
+  vm.runInContext(ts.transpileModule(readFileSync(new URL("../lib/supabase-browser.ts", import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, context);
+  const hook = exported.useAuthenticatedSupabase;
+  assert.ok(hook);
+  for (const state of [
+    { isLoaded: false, isSignedIn: false, sessionId: null, orgId: null },
+    { isLoaded: true, isSignedIn: false, sessionId: null, orgId: null },
+    { isLoaded: true, isSignedIn: true, sessionId: "session-a", orgId: null },
+  ]) {
+    Object.assign(auth, state);
+    assert.equal(hook(), null);
+    assert.equal(created, 0);
+  }
+  auth.orgId = "org-a";
+  const first = hook();
+  assert.ok(first);
+  assert.equal(hook(), first);
+  assert.ok(accessToken);
+  assert.equal(await accessToken(), "session-token");
+  token = "renewed-token";
+  assert.equal(await accessToken(), "renewed-token");
+  token = null;
+  await assert.rejects(accessToken(), /No signed-in session/);
+  auth.orgId = "org-b";
+  const second = hook();
+  assert.notEqual(second, first);
+  auth.sessionId = "session-b";
+  assert.notEqual(hook(), second);
+  Object.assign(auth, { isSignedIn: false, sessionId: null, orgId: null });
+  assert.equal(hook(), null);
+  assert.equal(created, 3);
+  Object.assign(auth, { isSignedIn: true, sessionId: "session-c", orgId: "org-c" });
+  vm.runInContext("delete globalThis.window", context);
+  assert.equal(hook(), null);
+  assert.equal(created, 3);
+});
 
 test("framework categories retain concrete reading order, zero counts and unmatched real files", () => {
   for (const { framework, labels, role } of [
@@ -156,6 +222,97 @@ test("routes table shows exact facts, dims unmatched files, selects sources and 
   assert.ok(renderToStaticMarkup(components.RoutesTable({ ...props, routes: [] })).includes("No routes extracted."));
 });
 
+test("file selection reveals an offscreen expanded folder while plain tab returns preserve the viewport", () => {
+  const template = testAnalysis.files.find(file => file.path === "core/a.ts")!;
+  const files = [...testAnalysis.files, ...Array.from({ length: 12 }, (_, index) => ({ ...template, path: `core/extra-${index}.ts` }))];
+  const { modules } = folding.foldFiles(files, testAnalysis.edges);
+  const props: Parameters<typeof DependencyMap>[0] = {
+    analysis: { ...testAnalysis, files }, name: "Viewport fixture", modules, expanded: new Set(["core"]), matchingFiles: null,
+    selection: null, hovered: null, onHover() {}, onSelectFile() {}, onToggle() {}, onDeselect() {},
+  };
+  const size = { width: 800, height: 600 };
+  const list = { scrollTop: 0, clientHeight: 8 * mapView.ROW_HEIGHT };
+  let viewport: Viewport = { x: 0, y: 0, zoom: 1 };
+  const moves: Viewport[] = [];
+  const flow = { viewportInitialized: true, getZoom: () => viewport.zoom,
+    setViewport: async (next: Viewport, options: { duration: number }) => {
+      assert.equal(options.duration, 0);
+      moves.push(next); viewport = next; return true;
+    } };
+  const memos: { deps: unknown[]; value: unknown }[] = [];
+  const refs: { current: unknown }[] = [];
+  const effects: unknown[][] = [];
+  let memoIndex = 0, refIndex = 0, effectIndex = 0;
+  const pending: (() => void)[] = [];
+  const components = loadComponent("dependency-map", {
+    react: { ...hooks,
+      useMemo: (calculate: () => unknown, deps: unknown[]) => {
+        const index = memoIndex++;
+        if (!memos[index] || deps.some((dep, i) => dep !== memos[index].deps[i])) memos[index] = { deps, value: calculate() };
+        return memos[index].value;
+      },
+      useRef: (initial: unknown) => {
+        const index = refIndex++;
+        return refs[index] ?? (refs[index] = { current: index === 2 ? list : initial });
+      },
+      useEffect: (effect: () => void, deps: unknown[]) => {
+        const index = effectIndex++;
+        if (!effects[index] || deps.some((dep, i) => dep !== effects[index][i])) { effects[index] = deps; pending.push(effect); }
+      },
+    },
+    "@xyflow/react": { getViewportForBounds, useReactFlow: () => flow,
+      useStore: (select: (state: typeof size) => unknown) => select(size),
+      ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
+      ReactFlow: ({ nodes, nodeTypes }: { nodes: { id: string; data: Record<string, unknown> }[]; nodeTypes: { folder: React.ElementType } }) => {
+        const node = nodes.find(node => node.id === modules.find(module => module.folder === "core")!.id)!;
+        return createElement(nodeTypes.folder, { id: node.id, data: node.data });
+      },
+      Handle: () => null, Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
+      useUpdateNodeInternals: () => () => {},
+      Controls: () => null, MarkerType: { ArrowClosed: "arrowclosed" },
+    },
+    "@xyflow/react/dist/style.css": {}, "@/lib/graph/view.mts": mapView,
+  });
+  assert.ok(components.DependencyMap);
+  function render() {
+    memoIndex = 0; refIndex = 0; effectIndex = 0;
+    renderToStaticMarkup(components.DependencyMap!(props));
+    pending.splice(0).forEach(effect => effect());
+  }
+  function assertFolderVisible() {
+    const folder = mapView.buildView(modules, testAnalysis.edges, props.expanded).nodes.find(node => node.folder === "core")!;
+    const left = folder.position.x * viewport.zoom + viewport.x;
+    const top = folder.position.y * viewport.zoom + viewport.y;
+    assert.ok(left >= 0 && top >= 0);
+    assert.ok(left + folder.width * viewport.zoom <= size.width);
+    assert.ok(top + folder.height * viewport.zoom <= size.height);
+  }
+  render();
+  viewport = { x: -10000, y: -10000, zoom: 0.5 };
+  props.selection = { kind: "file", id: "core/a.ts" };
+  render();
+  assert.equal(moves.length, 2, "selection must move the canvas even when the folder was already expanded");
+  assertFolderVisible();
+  assert.ok(viewport.zoom <= 0.5);
+
+  const panned = viewport = { x: -5000, y: 3000, zoom: 0.4 };
+  list.scrollTop = 6 * mapView.ROW_HEIGHT;
+  size.width = 0; size.height = 0; render();
+  size.width = 800; size.height = 600; render();
+  assert.equal(viewport, panned, "plain tab return must preserve the user's viewport");
+  assert.equal(list.scrollTop, 6 * mapView.ROW_HEIGHT);
+  size.width = 0; size.height = 0;
+  props.selection = { kind: "file", id: "core/a.ts" };
+  render();
+  assert.equal(moves.length, 2, "wait for a visible canvas before revealing a file");
+  size.width = 800; size.height = 600; render();
+  assert.equal(moves.length, 3, "clicking the same route again must reveal it again");
+  assertFolderVisible();
+  assert.equal(list.scrollTop, 0, "reselecting the route must also reveal its manually scrolled-away file row");
+  render();
+  assert.equal(moves.length, 3);
+});
+
 test("framework details retain the route count and count only unmatched real files", () => {
   const components = loadComponent("detail-pane", { "./insights-panel": loadComponent("insights-panel") });
   assert.ok(components.DetailPane);
@@ -202,7 +359,7 @@ const hooks = {
 
 /** Evaluates real TSX components with explicit hook snapshots in Node, failing on missing dependencies instead of requiring a browser. */
 function loadComponent(name: string, imports: Record<string, unknown> = {}, globals: Record<string, unknown> = {}) {
-  const exported: { DetailPane?: typeof DetailPane; InsightsPanel?: typeof InsightsPanel; ThemeControl?: typeof ThemeControl; AnalysisStatus?: typeof AnalysisStatus; CoverageBanner?: typeof CoverageBanner; AnalysisProgress?: typeof AnalysisProgress; LiveRefresh?: typeof LiveRefresh; RepositoryMap?: typeof RepositoryMap; RoutesTable?: typeof RoutesTable } = {};
+  const exported: { DetailPane?: typeof DetailPane; InsightsPanel?: typeof InsightsPanel; ThemeControl?: typeof ThemeControl; AnalysisStatus?: typeof AnalysisStatus; CoverageBanner?: typeof CoverageBanner; AnalysisProgress?: typeof AnalysisProgress; LiveRefresh?: typeof LiveRefresh; RepositoryMap?: typeof RepositoryMap; RoutesTable?: typeof RoutesTable; DependencyMap?: typeof DependencyMap } = {};
   const modules: Record<string, unknown> = {
     react: hooks, "react/jsx-runtime": jsxRuntime,
     "@/lib/graph/analysis.mts": graph, "@/lib/graph/folding.mts": folding,
@@ -224,6 +381,44 @@ function loadComponent(name: string, imports: Record<string, unknown> = {}, glob
   });
   return exported;
 }
+
+test("live subscribers wait for an authenticated client and clean up when identity changes", () => {
+  for (const name of ["live-refresh", "analysis-progress"]) {
+    let db: object | null = null;
+    let cleanup: (() => void) | undefined;
+    const events: string[] = [];
+    const components = loadComponent(name, {
+      react: { ...hooks, useEffect: (effect: () => (() => void) | undefined) => {
+        cleanup?.(); cleanup = effect();
+      } },
+      "next/navigation": { useRouter: () => ({ refresh() {} }) },
+      "@/lib/supabase-browser": { useAuthenticatedSupabase: () => db },
+      "@/app/(app)/actions": { readProgress: async () => ({ stage: "parse", message: "Parsing" }) },
+      "@/lib/progress.mts": progress,
+      "./analysis-status": loadComponent("analysis-status"),
+      "@/lib/realtime.mts": { subscribeToProgress: (client: unknown) => {
+        assert.ok(client, "Cannot subscribe before Clerk is ready");
+        events.push("subscribe");
+        return () => { events.push("cleanup"); };
+      } },
+    });
+    function render() {
+      if (name === "live-refresh") return components.LiveRefresh!({ topic: "analysis:test" });
+      return components.AnalysisProgress!({ id: "test", initial: { stage: "parse", message: "Parsing" }, deadline: 0 });
+    }
+    render();
+    assert.deepEqual(events, []);
+    db = {};
+    render();
+    assert.deepEqual(events, ["subscribe"]);
+    db = {};
+    render();
+    assert.deepEqual(events, ["subscribe", "cleanup", "subscribe"]);
+    db = null;
+    render();
+    assert.deepEqual(events, ["subscribe", "cleanup", "subscribe", "cleanup"]);
+  }
+});
 
 test("background live refresh stays invisible after connection errors and still refreshes on updates", () => {
   let error: string | null = null;

@@ -50,7 +50,7 @@ async function configuration(root: string): Promise<{prefix: string; extensions:
       if (!initializer || !Node.isArrayLiteralExpression(initializer)) return unknown;
       const items = initializer.getElements().map(literal);
       if (!items.length || items.some(item => item === undefined || !/^[a-zA-Z.]+$/.test(item))) return unknown;
-      result.extensions = items.filter((item): item is string => item !== undefined);
+      result.extensions = items.filter((item): item is string => item !== undefined).sort((a, b) => b.length - a.length);
     }
   }
   return result;

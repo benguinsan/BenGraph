@@ -79,12 +79,12 @@ export function importedName(node: Node, module: string): string | undefined {
     const specifier = declarations.find(Node.isImportSpecifier);
     if (specifier && !specifier.isTypeOnly() && !specifier.getImportDeclaration().isTypeOnly() && specifier.getImportDeclaration().getModuleSpecifierValue() === module) return specifier.getName();
   }
-  if (Node.isPropertyAccessExpression(target)) {
+  if (Node.isPropertyAccessExpression(target) || Node.isElementAccessExpression(target)) {
     const left = target.getExpression();
     if (Node.isIdentifier(left)) {
       const namespace = left.getSymbol()?.getDeclarations().find(Node.isNamespaceImport);
       const declaration = namespace?.getFirstAncestorByKind(SyntaxKind.ImportDeclaration);
-      if (declaration && !declaration.isTypeOnly() && declaration.getModuleSpecifierValue() === module) return target.getName();
+      if (declaration && !declaration.isTypeOnly() && declaration.getModuleSpecifierValue() === module) return Node.isPropertyAccessExpression(target) ? target.getName() : literal(target.getArgumentExpression());
     }
   }
   return undefined;

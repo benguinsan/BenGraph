@@ -28,6 +28,9 @@ exported by a page/layout does not make that file a dedicated metadata file.
 Only parsed source contributes: static metadata images, JSON and XML are excluded.
 If any non-declaration source was skipped, routes are withheld because the
 missing source could contain routing configuration; parsed roles remain visible.
+Nest routes are also withheld when multiple Nest HTTP applications are detected:
+controller ownership is not tracked, so one application's prefix cannot safely
+be applied to every controller. File roles remain available.
 
 Paths and folders are relative to the input directory, with `/` separators.
 The root folder is `""`. Files carry line counts, SHA-256 hashes, module format

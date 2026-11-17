@@ -17,7 +17,7 @@ export function AnalysisProgress({ id, initial, deadline }: {
   const [error, setError] = useState<string | null>(null);
   const finished = progress.stage === "complete" || progress.stage === "failed";
   useEffect(() => {
-    if (finished) return;
+    if (!db || finished) return;
     return subscribeToProgress(db, `analysis:${id}`, {
       onProgress: progress => {
         setProgress(progress);

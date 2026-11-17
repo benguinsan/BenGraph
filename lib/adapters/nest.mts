@@ -18,8 +18,10 @@ function fullPath(...parts: string[]): string | undefined {
 function globalPrefix(sources: readonly ParsedSource[]): string | undefined {
   let prefix = '';
   let prefixes = 0;
+  let applications = 0;
   for (const {source} of sources) {
-    if (source.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).some(expression => importedName(expression, '@nestjs/core') === 'RouterModule')) return undefined;
+    if ([...source.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression), ...source.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)]
+      .some(expression => importedName(expression, '@nestjs/core') === 'RouterModule')) return undefined;
     if (source.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).some(expression => {
       if (expression.getName() !== 'setGlobalPrefix') return false;
       const parent = expression.getParent();
@@ -32,6 +34,11 @@ function globalPrefix(sources: readonly ParsedSource[]): string | undefined {
     })) return undefined;
     for (const call of source.getDescendantsOfKind(SyntaxKind.CallExpression)) {
       const expression = call.getExpression();
+      // shortcut: omit multi-app routes, track controller ownership when those routes are needed.
+      if (Node.isPropertyAccessExpression(expression) || Node.isElementAccessExpression(expression)) {
+        const method = Node.isPropertyAccessExpression(expression) ? expression.getName() : literal(expression.getArgumentExpression());
+        if (method === 'create' && importedName(expression.getExpression(), '@nestjs/core') === 'NestFactory' && ++applications > 1) return undefined;
+      }
       if (Node.isElementAccessExpression(expression)) {
         const name = literal(expression.getArgumentExpression());
         if (name === undefined || ['setGlobalPrefix','enableVersioning','register'].includes(name)) return undefined;
