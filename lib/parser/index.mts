@@ -4,6 +4,8 @@ import { opendir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { isBuiltin } from "node:module";
 import { Project, SyntaxKind, ts } from "ts-morph";
+import { analyseFramework } from "../adapters/index.mts";
+import { isFrameworkFacts, type FrameworkFacts } from "../adapters/types.mts";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]);
 const EXCLUDED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage"]);
@@ -41,7 +43,7 @@ export interface SkippedFile {
   reason: string;
 }
 
-export interface ParseResult {
+export interface ParseResult extends FrameworkFacts {
   version: 1;
   root: string;
   files: ParsedFile[];
@@ -104,7 +106,7 @@ export function isStoredAnalysis(value: unknown): value is StoredAnalysis {
     isNumber(coverage.importsSeen) && isNumber(coverage.importsResolved) && isNumber(coverage.importsOutside) &&
     isNumber(coverage.importsExcluded) && isNumber(coverage.importsUnresolved))) return false;
   const paths = new Set(files.map(file => file.path));
-  return paths.size === files.length &&
+  return isFrameworkFacts(value, paths) && paths.size === files.length &&
     edges.every(edge => paths.has(edge.from) && paths.has(edge.to)) &&
     coverage.filesParsed === files.length && coverage.filesFound === files.length + coverage.filesSkipped &&
     coverage.filesSkipped === coverage.skipped.length && coverage.importsSeen === imports.length &&
@@ -352,9 +354,13 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
     const degree = degrees.get(file.path);
     if (degree) { file.fanIn = degree.fanIn; file.fanOut = degree.fanOut; }
   }
+  const framework = await analyseFramework(root, files.map(file => ({ path: file.path, source: project.getSourceFileOrThrow(path.join(root, file.path)) })));
+  // Skipped source may contain routing configuration; its absence cannot imply default paths.
+  if (skipped.some(file => !/\.d\.(ts|mts|cts)$/.test(file.path))) framework.routes = [];
   return {
     version: 1,
     root,
+    ...framework,
     files,
     edges,
     imports,

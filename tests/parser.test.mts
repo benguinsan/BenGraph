@@ -10,6 +10,20 @@ import { parseRepository, readParseResult } from "../lib/parser/index.mts";
 
 const run = promisify(execFile);
 
+test("withholds routes when skipped source could hide routing configuration", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "cartograph-partial-routes-"));
+  try {
+    await writeFile(path.join(root, "package.json"), '{"dependencies":{"@nestjs/core":"11","@nestjs/common":"11"}}');
+    await writeFile(path.join(root, "main.ts"), 'app.setGlobalPrefix("api";');
+    await writeFile(path.join(root, "cats.controller.ts"), 'import { Controller, Get } from "@nestjs/common"; @Controller("cats") export class Cats { @Get() list() {} }');
+    const result = await parseRepository(root);
+    assert.equal(result.framework, "nestjs");
+    assert.equal(result.coverage.filesSkipped, 1);
+    assert.deepEqual(result.roles, [{ path: "cats.controller.ts", role: "controller" }]);
+    assert.deepEqual(result.routes, []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 for (const kind of ["tsconfig.json", "jsconfig.json", "inherited file", "inherited directory"] as const) {
   test(`rejects compiler configuration escaping through a symlink: ${kind}`, async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "cartograph-config-symlink-"));

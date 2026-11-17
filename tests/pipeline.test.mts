@@ -92,6 +92,9 @@ test("downloads the exact resolved commit without auth and parses the extracted 
     await mkdir(path.join(root, "source", "repo"), { recursive: true });
     await writeFile(path.join(root, "source", "repo", "main.ts"), 'export { value } from "./leaf";');
     await writeFile(path.join(root, "source", "repo", "leaf.ts"), "export const value = 1;");
+    await writeFile(path.join(root, "source", "repo", "package.json"), '{"dependencies":{"next":"16","react":"19"}}');
+    await mkdir(path.join(root, "source", "repo", "app"));
+    await writeFile(path.join(root, "source", "repo", "app", "page.tsx"), 'export default function Page() { return <main />; }');
     await run("tar", ["-czf", path.join(root, "fixture.tar.gz"), "-C", path.join(root, "source"), "repo"]);
     const archive = await readFile(path.join(root, "fixture.tar.gz"));
     const urls: string[] = [];
@@ -103,7 +106,10 @@ test("downloads the exact resolved commit without auth and parses the extracted 
     const destination = path.join(root, "download");
     assert.equal(await fetchRepository("https://github.com/owner/repo", destination), sha);
     const result = await parseRepository(path.join(destination, "repo"));
-    assert.equal(result.files.length, 2);
+    assert.equal(result.files.length, 3);
+    assert.equal(result.framework, "nextjs");
+    assert.ok(result.roles.some(role => role.path === "app/page.tsx" && role.role === "page"));
+    assert.deepEqual(result.routes, [{ file: "app/page.tsx", method: "GET", path: "/" }]);
     assert.deepEqual(result.edges, [{ from: "main.ts", to: "leaf.ts", kind: "re-export" }]);
     assert.deepEqual(urls, ["https://api.github.com/repos/owner/repo/commits/HEAD", `https://codeload.github.com/owner/repo/tar.gz/${sha}`]);
 
@@ -114,6 +120,7 @@ test("downloads the exact resolved commit without auth and parses the extracted 
     assert.equal(fixture.updates[0]?.commit_sha, sha);
     assert.deepEqual(fixture.results, [{ p_analysis_id: "test-analysis", p_started_at: startedAt, p_result: {
       files: result.files, edges: result.edges, imports: result.imports, coverage: result.coverage,
+      framework: result.framework, roles: result.roles, routes: result.routes,
     } }]);
 
     urls.length = 0;

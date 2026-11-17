@@ -7,6 +7,7 @@ import type { repositoryStructure } from "@/lib/graph/details.mts";
 import { walkGraph, type repositoryInsights, type WalkDirection } from "@/lib/graph/analysis.mts";
 import type { Selection } from "@/lib/graph/view.mts";
 import { InsightsPanel } from "./insights-panel";
+import { frameworkNames, repositoryCategories, roleLabel } from "@/lib/adapters/taxonomy.mts";
 
 interface DetailProps {
   analysis: StoredAnalysis;
@@ -28,6 +29,9 @@ export function DetailPane({ analysis, name, modules, structure, insights, selec
   const file = selection?.kind === "file" ? analysis.files.find(file => file.path === selection.id) : undefined;
   const folder = selection?.kind === "folder" ? modules.find(module => module.folder === selection.id) : undefined;
   const neighbours = file ? structure.neighbours.get(file.path) : undefined;
+  const roles = file ? analysis.roles.filter(role => role.path === file.path) : [];
+  const unidentified = analysis.framework === null ? (folder?.files ?? analysis.files).length
+    : repositoryCategories(folder?.files ?? analysis.files, analysis.framework, analysis.roles).get("Unidentified")!.size;
   const direction = file && walk?.path === file.path ? walk.direction : null;
   const walked = file && direction ? walkGraph(structure.neighbours, file.path, direction, structure.neighbours.size) : [];
   const nearby = walked.filter(row => row.depth <= 2);
@@ -97,7 +101,7 @@ export function DetailPane({ analysis, name, modules, structure, insights, selec
         </> : <>
           <h2 className="break-all font-mono text-[14px] font-semibold">{folder ? folder.folder || "Repository root" : name}</h2>
           {folder ? <p className="mt-1 text-[12px] text-muted">Folded folder</p> : (
-            <p className="mt-1 text-[12px]"><span className="text-muted">Framework </span>none detected</p>
+            <p className="mt-1 text-[12px]"><span className="text-muted">Framework </span>{analysis.framework === null ? "none detected" : frameworkNames[analysis.framework]}</p>
           )}
         </>}
       </div>
@@ -126,10 +130,11 @@ export function DetailPane({ analysis, name, modules, structure, insights, selec
           <>
             <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1 border-b border-line px-3 py-3 text-[12px]">
               <dt className="text-muted">Kind</dt>
-              <dd className="flex items-center gap-2 font-mono" title="Unclassified by convention; no framework adapter applied">
+              <dd className="flex items-center gap-2 font-mono">
                 <span className="file-kind" data-extension={file.path.slice(file.path.lastIndexOf("."))} aria-hidden />
                 {file.path.slice(file.path.lastIndexOf("."))}
               </dd>
+              <dt className="text-muted">Roles</dt><dd>{roles.length === 0 ? "Unidentified" : roles.map(({ role }) => roleLabel(analysis.framework, role)).join(", ")}</dd>
               <dt className="text-muted">Folder</dt><dd className="break-all font-mono">{file.folder || "."}</dd>
               <dt className="text-muted">Length</dt><dd className="tabular-nums">{file.lines} {file.lines === 1 ? "line" : "lines"}</dd>
               <dt className="text-muted">Depends on</dt><dd><span className="tabular-nums text-outgoing">{neighbours.dependencies.length}</span> files</dd>
@@ -202,8 +207,8 @@ export function DetailPane({ analysis, name, modules, structure, insights, selec
               </ul>
             </section>
             <section className="px-3 py-2 text-[11px] text-muted">
-              <h3 className="flex gap-2 font-normal">Unidentified by convention<span className="ml-auto tabular-nums text-fg">{folder.files.length}</span></h3>
-              <p className="mt-1 leading-relaxed">No framework adapter applied, so no file in this folder was matched to a role.</p>
+              <h3 className="flex gap-2 font-normal">Unidentified by convention<span className="ml-auto tabular-nums text-fg">{unidentified}</span></h3>
+              <p className="mt-1 leading-relaxed">{analysis.framework === null ? "No framework adapter applied, so no file in this folder was matched to a role." : "Files in this folder without a framework role."}</p>
             </section>
           </>
         ) : (
@@ -221,16 +226,15 @@ export function DetailPane({ analysis, name, modules, structure, insights, selec
               </div>
               <div className="min-w-0 px-3 py-2.5">
                 <dt className="text-[11px] text-muted">Routes</dt>
-                <dd className="mt-0.5 font-mono text-[18px] leading-tight text-muted" aria-label="Not available">—</dd>
-                <dd className="mt-1 text-[11px] text-muted">no adapter</dd>
+                <dd className="mt-0.5 font-mono text-[18px] leading-tight tabular-nums">{analysis.routes.length}</dd>
               </div>
             </dl>
             <div className="py-2">
               {paths("Most depended on", structure.mostImported, "by files importing it", "incoming", true)}
               {paths("Imported by nothing", structure.entryPoints, "where reading starts", "outgoing", true)}
               <section className="px-3 py-2 text-[11px] text-muted">
-                <h3 className="flex gap-2 font-normal">Unidentified by convention<span className="ml-auto tabular-nums text-fg">{analysis.files.length}</span></h3>
-                <p className="mt-1 leading-relaxed">No framework adapter applied, so no file was matched to a role.</p>
+                <h3 className="flex gap-2 font-normal">Unidentified by convention<span className="ml-auto tabular-nums text-fg">{unidentified}</span></h3>
+                <p className="mt-1 leading-relaxed">{analysis.framework === null ? "No framework adapter applied, so no file was matched to a role." : "Files without a framework role."}</p>
               </section>
             </div>
           </>
