@@ -8,9 +8,12 @@ import { useAuthenticatedSupabase } from "@/lib/supabase-browser";
 export function LiveRefresh({ topic }: { topic: string }) {
   const db = useAuthenticatedSupabase();
   const router = useRouter();
-  useEffect(() => subscribeToProgress(db, topic, {
-    onProgress: () => router.refresh(), onSubscribed: () => router.refresh(),
-    onError: error => { if (error) console.warn(error); },
-  }), [db, topic, router]);
+  useEffect(() => {
+    if (!db) return;
+    return subscribeToProgress(db, topic, {
+      onProgress: () => router.refresh(), onSubscribed: () => router.refresh(),
+      onError: error => { if (error) console.warn(error); },
+    });
+  }, [db, topic, router]);
   return null;
 }

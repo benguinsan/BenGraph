@@ -14,7 +14,7 @@ type FolderNode = Node<{
   module: ViewNode;
   direction: LayoutDirection;
   focusedFiles: ReadonlySet<string>;
-  selectedFile: string | null;
+  selection: Selection;
   hovered: Selection;
   active: boolean;
   focused: boolean;
@@ -36,7 +36,8 @@ function Ports({ name, top, opacity = 1 }: { name: string; top: number; opacity?
 
 /** Keeps file rows scrollable and clamps import endpoints to their visible list boundaries. */
 function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
-  const { module, focusedFiles, selectedFile, focused, selectFile, hovered, onHover } = data;
+  const { module, focusedFiles, selection, focused, selectFile, hovered, onHover } = data;
+  const selectedFile = selection?.kind === "file" ? selection.id : null;
   const [scrollTop, setScrollTop] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const viewport = rowViewport(module.rows.length, scrollTop);
@@ -49,7 +50,7 @@ function FolderRows({ id, data }: { id: string; data: FolderNode["data"] }) {
     const top = index * ROW_HEIGHT;
     if (top < element.scrollTop) element.scrollTop = top;
     else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
-  }, [selectedFile, module.rows]);
+  }, [selectedFile, selection, module.rows]);
 
   return (
     <>
@@ -159,7 +160,7 @@ interface MapProps {
   onDeselect: () => void;
 }
 
-/** Projects resolved imports onto folder panels and refits changed layouts without zooming in. */
+/** Projects resolved imports onto folder panels and reveals explicitly selected files. */
 function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, hovered, onHover, onSelectFile, onToggle, onDeselect }: MapProps) {
   const [direction, setDirection] = useState<LayoutDirection>("TB");
   const { setViewport, getZoom, viewportInitialized } = useReactFlow<FolderNode>();
@@ -167,18 +168,23 @@ function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, h
   const canvasHeight = useStore(state => state.height);
   const view = useMemo(() => buildView(modules, analysis.edges, expanded, direction), [modules, analysis, expanded, direction]);
   const fittedView = useRef<{ view: typeof view; direction: LayoutDirection } | null>(null);
+  const revealedSelection = useRef<Selection>(null);
   const focus = useMemo(() => focusGraph(modules, analysis.edges, selection, matchingFiles), [modules, analysis, selection, matchingFiles]);
 
   useEffect(() => {
-    if (!viewportInitialized || canvasWidth <= 0 || canvasHeight <= 0 || fittedView.current?.view === view) return;
+    // Selection identity records clicks; a plain tab return keeps the viewport.
+    const reveal = selection?.kind === "file" && revealedSelection.current !== selection
+      ? view.nodes.find(node => node.files.some(file => file.path === selection.id)) : undefined;
+    if (!viewportInitialized || canvasWidth <= 0 || canvasHeight <= 0 || (fittedView.current?.view === view && !reveal)) return;
     // These are the new panel dimensions, independent of React Flow's previous
     // measurements. Fitting after render cannot accidentally use the closed box.
-    const bounds = viewBounds(view.nodes);
+    const bounds = viewBounds(reveal ? [reveal] : view.nodes);
     if (!bounds) return;
     const maxZoom = fittedView.current?.direction === direction ? getZoom() : 1;
     fittedView.current = { view, direction };
+    revealedSelection.current = selection;
     void setViewport(getViewportForBounds(bounds, canvasWidth, canvasHeight, 0.01, maxZoom, 0.08), { duration: 0 });
-  }, [view, direction, canvasWidth, canvasHeight, viewportInitialized, setViewport, getZoom]);
+  }, [view, direction, canvasWidth, canvasHeight, viewportInitialized, setViewport, getZoom, selection]);
 
   const nodes: FolderNode[] = view.nodes.map(module => {
     const matchCount = focus.matchCounts?.get(module.folder) ?? null;
@@ -191,7 +197,7 @@ function Canvas({ analysis, name, modules, expanded, matchingFiles, selection, h
       // are off; the folder's own buttons still need to receive clicks.
       style: { width: module.width, height: module.height, pointerEvents: "all", opacity: focused || hoverVisible ? 1 : 0.18 },
       data: { module, direction, focusedFiles: focus.files, focused, matchCount,
-        selectedFile: selection?.kind === "file" ? selection.id : null,
+        selection,
         active: selection?.kind === "folder" ? selection.id === module.folder : module.files.some(file => file.path === selection?.id),
         hovered, onHover, toggle: onToggle, selectFile: onSelectFile },
     };

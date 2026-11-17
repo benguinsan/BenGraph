@@ -1,3 +1,7 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+# shortcut: pin the minimatch security fix until patched parents pass pnpm's release-age check.
+overrides:
+  'minimatch@10.2.6': 11.0.1

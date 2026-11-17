@@ -1,4 +1,4 @@
-# Repository pipeline — Phase 07
+# Repository pipeline — Phases 07–08
 
 Fetches a public GitHub archive at an exact commit, selects and parses source
 files, then stores file facts, import edges, coverage and import reasons.
@@ -8,6 +8,8 @@ Apply the tracked migrations before running it. The pipeline migration is
 `supabase/migrations/20261110114308_repository_pipeline.sql`; progress is added by
 `supabase/migrations/20261110114313_analysis_progress.sql`; stored reads and explicit
 re-analysis are added by `supabase/migrations/20261110114317_stored_explorer_and_reanalysis.sql`.
+Phase 08 framework facts are added by
+`supabase/migrations/20261110195407_framework_adapters.sql`.
 The pipeline adds organization-scoped write policies and two invoker-rights functions:
 `begin_analysis` claims a repository once per organization, and `store_analysis`
 saves the graph and marks completion in one transaction. Start and finish times
@@ -45,6 +47,19 @@ It records `fetch`, `select`, `parse` and `store` stages in the database. Select
 is the parser's existing directory walk; its optional third callback marks the
 transition into parsing. Failures retain the stage, reason and finish time.
 Temporary archives are removed on success and caught failures.
+
+The parser also returns one detected framework, file roles and exact extracted
+routes. These are committed with the graph: `analyses.framework`, `file_roles`
+and `routes`. Reads include all three in the same RLS-protected snapshot.
+Re-analysis replaces their rows together with file rows; a failed save preserves
+the old result. Older analyses have no framework facts until explicitly re-analysed.
+The map shows fixed framework categories and role memberships. The central
+explorer switches between Map (with Vertical/Horizontal layout) and Routes
+(a selectable method/path/file table). Switching views preserves the mounted map;
+selecting a route file returns to Map and reveals that file. Unmatched
+repositories retain extension categories.
+Conservative extraction omits Pages API methods, intercepting/parallel routes,
+dynamic config and path modifiers that cannot be recovered without running code.
 
 ## Dashboard and progress
 
@@ -139,6 +154,10 @@ checks do not verify WebSocket transport; browser acceptance remains manual.
 superseded writers, same-stage restart broadcasts, cross-organization reads and
 restarts, and a stored result with 1,205 files.
 
+`tests/framework-storage.sql` checks framework/role/route round trips,
+cross-organization read and write rejection, invalid endpoints, rollback after a
+duplicate role, and removal of old framework facts on a generic replacement.
+
 ## Hosted deployment
 
 The application uses the publishable key and Clerk token, including all database
@@ -151,5 +170,5 @@ Never use a service-role key for application queries.
 Until hosted migrations are applied, compilation and local database checks do
 not establish that the hosted app is ready.
 
-The browser acceptance check in `docs/specs/phase-07.md` remains the owner's to
-run. Framework roles, routes and AI are outside this phase.
+The browser acceptance checks in `docs/specs/phase-07.md` and
+`docs/specs/phase-08.md` remain the owner's to run. AI is outside these phases.

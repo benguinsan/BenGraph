@@ -44,6 +44,9 @@ export async function runAnalysis(db: SupabaseClient<Database>, id: string, repo
       p_analysis_id: id,
       p_started_at: startedAt,
       p_result: {
+        framework: result.framework,
+        roles: result.roles.map(role => ({ ...role })),
+        routes: result.routes.map(route => ({ ...route })),
         files: result.files.map(file => ({ ...file })),
         edges: result.edges.map(edge => ({ ...edge })),
         imports: result.imports.map(record => ({ ...record })),
