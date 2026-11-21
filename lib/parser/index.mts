@@ -337,9 +337,10 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
       const callee = call.getExpression();
       let kind: ImportKind;
       if (callee.getKind() === SyntaxKind.ImportKeyword) kind = "dynamic-import";
-      // A require declared in this file (createRequire, a parameter, a helper) loads relative to something we can't see.
+      // A require bound in this file (createRequire, a parameter, a helper) loads relative to something we can't see; `declare` only types the real one.
       else if (Node.isIdentifier(callee) && callee.getText() === "require" && call.getArguments().length === 1 &&
-          !(callee.getSymbol()?.getDeclarations() ?? []).some(declaration => declaration.getSourceFile() === source)) kind = "require";
+          !(callee.getSymbol()?.getDeclarations() ?? []).some(declaration => declaration.getSourceFile() === source &&
+            ![declaration, ...declaration.getAncestors()].some(node => Node.isAmbientable(node) && node.hasDeclareKeyword()))) kind = "require";
       else continue;
       const argument = call.getArguments()[0];
       if (argument?.getKind() === SyntaxKind.StringLiteral) {

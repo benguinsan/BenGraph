@@ -420,12 +420,13 @@ test('Express roles follow singular and plural folders, nearest folder wins, and
     'config/db.js': 'module.exports = {};',
     'jest.config.js': 'module.exports = {};',
     'app.js': 'module.exports = require("express")();',
+    'client/Button.tsx': 'export function Button(){ return <button/> }',
   }, async (root, sources) => {
     const facts = await analyseFramework(root, sources);
     assert.equal(facts.framework, 'express');
     assert.deepEqual(facts.routes, []);
     assert.deepEqual(facts.roles.map(role => `${role.path}:${role.role}`), [
-      'config/db.js:config', 'Controllers/users.js:controller', 'jest.config.js:config', 'middleware/auth.js:middleware',
+      'client/Button.tsx:component', 'config/db.js:config', 'Controllers/users.js:controller', 'jest.config.js:config', 'middleware/auth.js:middleware',
       'middlewares/models/legacy.js:model', 'models/user.js:model', 'routers/api.ts:route', 'services/mail.js:service',
       'src/route/admin.js:route', 'src/routes/users.js:route',
     ]);
@@ -439,8 +440,13 @@ test('React roles read CommonJS exports, including the exports alias only until 
     'useThing.js': 'const { useState } = require("react");\nexports.useThing = function(){ return useState(0) };',
     'Lost.jsx': 'module.exports = {};\nexports.Lost = () => <p/>;',
     'Hidden.jsx': 'if (process.env.X) { module.exports = () => <p/>; }',
+    'Gone.jsx': 'exports.Gone = () => <p/>;\nexports.Gone = undefined;',
+    'Detached.jsx': 'exports = {};\nexports.Detached = () => <p/>;',
+    'Kept.jsx': 'exports.Kept = () => <p/>;\nexports = {};',
+    'Late.jsx': 'exports = {};\nmodule.exports.Late = () => <p/>;',
+    'Mixed.jsx': 'import React from "react";\nmodule.exports = function Mixed(){ return <div/> };',
   }, async (root, sources) => {
     const facts = await analyseFramework(root, sources);
-    assert.deepEqual(facts.roles.map(role => `${role.path}:${role.role}`), ['Button.jsx:component', 'Card.jsx:component', 'useThing.js:hook']);
+    assert.deepEqual(facts.roles.map(role => `${role.path}:${role.role}`), ['Button.jsx:component', 'Card.jsx:component', 'Kept.jsx:component', 'Late.jsx:component', 'Mixed.jsx:component', 'useThing.js:hook']);
   });
 });

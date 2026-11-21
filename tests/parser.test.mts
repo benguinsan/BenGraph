@@ -228,6 +228,7 @@ test("require() calls become edges, mixed files report both kinds once, and unre
     await writeFile(path.join(root, "db.js"), "module.exports = {};");
     await writeFile(path.join(root, "mixed.ts"), 'import "./db"; const db = require("./db"); import x = require("./db");');
     await writeFile(path.join(root, "shadow.js"), 'function load(require) { return require("./db"); }');
+    await writeFile(path.join(root, "ambient.ts"), 'declare const require: (id: string) => unknown; const db = require("./db");');
 
     const result = await parseRepository(root);
     assert.equal(result.framework, "express");
@@ -241,6 +242,7 @@ test("require() calls become edges, mixed files report both kinds once, and unre
       ["name", "unresolved", "Non-literal require"],
     ]);
     assert.deepEqual(result.edges, [
+      { from: "ambient.ts", to: "db.js", kind: "require" },
       { from: "app.js", to: "routes/users.js", kind: "require" },
       { from: "mixed.ts", to: "db.js", kind: "import" },
       { from: "mixed.ts", to: "db.js", kind: "require" },
@@ -248,7 +250,8 @@ test("require() calls become edges, mixed files report both kinds once, and unre
     ]);
     assert.equal(result.imports.filter(item => item.from === "mixed.ts").length, 2);
     assert.equal(result.imports.some(item => item.from === "shadow.js"), false);
-    assert.equal(result.files.find(file => file.path === "db.js")?.fanIn, 2);
+    assert.deepEqual(result.imports.filter(item => item.from === "ambient.ts").map(item => [item.specifier, item.status, item.target]), [["./db", "resolved", "db.js"]]);
+    assert.equal(result.files.find(file => file.path === "db.js")?.fanIn, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

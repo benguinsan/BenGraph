@@ -20,7 +20,10 @@ export async function analyseFramework(root: string, sources: readonly ParsedSou
   let facts: FrameworkFacts;
   if (dependencies.has('next')) facts = await nextFacts(root, sources);
   else if (dependencies.has('@nestjs/core') || dependencies.has('@nestjs/common')) facts = nestFacts(sources);
-  else if (dependencies.has('express')) facts = expressFacts(sources);
+  else if (dependencies.has('express')) {
+    facts = expressFacts(sources);
+    if (dependencies.has('react')) facts.roles.push(...reactRoles(sources));
+  }
   else if (dependencies.has('react')) facts = {framework:'react', roles:reactRoles(sources), routes:[]};
   else facts = {framework:null, roles:[], routes:[]};
   facts.roles = [...new Map(facts.roles.map(role => [`${role.path}\0${role.role}`, role])).values()].sort((a,b) => a.path.localeCompare(b.path, 'en') || a.role.localeCompare(b.role, 'en'));

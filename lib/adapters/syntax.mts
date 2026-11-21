@@ -80,15 +80,17 @@ function commonJsExports(source: SourceFile): ReadonlyMap<string, readonly Node[
   const add = (name: string, value: Node | undefined) => {
     const node = unwrap(value);
     const declaration = node && Node.isIdentifier(node) ? local(node.getSymbol()) : node;
+    exported.delete(name);
     if (declaration) exported.set(name, [declaration]);
   };
-  // After module.exports is replaced, the bare exports alias no longer reaches the module.
+  // After module.exports or the bare exports alias is reassigned, the alias no longer reaches the module.
   let rebound = false;
   for (const statement of source.getStatements()) {
     const expression = Node.isExpressionStatement(statement) ? statement.getExpression() : undefined;
     if (!expression || !Node.isBinaryExpression(expression) || expression.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
     const target = expression.getLeft().getText();
     const value = expression.getRight();
+    if (target === 'exports') { rebound = true; continue; }
     if (target === 'module.exports') {
       exported.clear();
       rebound = true;
@@ -112,7 +114,9 @@ function commonJsExports(source: SourceFile): ReadonlyMap<string, readonly Node[
 
 /** Runtime exports of either module system, for adapters that only need a file's names. */
 export function moduleExports(source: SourceFile): ReadonlyMap<string, readonly Node[]> {
-  return ts.isExternalModule(source.compilerNode) ? exportsOf(source) : commonJsExports(source);
+  const commonJs = commonJsExports(source);
+  // A file with ES syntax can still assign module.exports under a CommonJS transform; ES names win on conflict.
+  return ts.isExternalModule(source.compilerNode) ? new Map([...commonJs, ...exportsOf(source)]) : commonJs;
 }
 
 export function importedName(node: Node, module: string): string | undefined {
