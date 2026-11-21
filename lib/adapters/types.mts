@@ -1,4 +1,4 @@
-export type Framework = "nextjs" | "nestjs" | "react" | null;
+export type Framework = "nextjs" | "nestjs" | "express" | "react" | null;
 export interface FileRole { path: string; role: string }
 export interface ExtractedRoute { file: string; method: string; path: string }
 export interface FrameworkFacts {
@@ -10,7 +10,7 @@ export interface FrameworkFacts {
 /** Rejects persisted framework facts that name missing files or duplicate entries. */
 export function isFrameworkFacts(value: unknown, paths: ReadonlySet<string>): value is FrameworkFacts {
   if (typeof value !== "object" || value === null || !("framework" in value) ||
-      (value.framework !== null && value.framework !== "nextjs" && value.framework !== "nestjs" && value.framework !== "react") ||
+      (value.framework !== null && value.framework !== "nextjs" && value.framework !== "nestjs" && value.framework !== "express" && value.framework !== "react") ||
       !("roles" in value) || !Array.isArray(value.roles) || !("routes" in value) || !Array.isArray(value.routes)) return false;
   if (value.framework === null && (value.roles.length > 0 || value.routes.length > 0)) return false;
   const roles = new Set<string>();

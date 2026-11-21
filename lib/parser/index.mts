@@ -3,14 +3,14 @@ import { realpathSync } from "node:fs";
 import { opendir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { isBuiltin } from "node:module";
-import { Project, SyntaxKind, ts } from "ts-morph";
+import { Node, Project, SyntaxKind, ts } from "ts-morph";
 import { analyseFramework } from "../adapters/index.mts";
 import { isFrameworkFacts, type FrameworkFacts } from "../adapters/types.mts";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]);
 const EXCLUDED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage"]);
 
-export type ImportKind = "import" | "re-export" | "dynamic-import";
+export type ImportKind = "import" | "re-export" | "dynamic-import" | "require";
 export type ImportStatus = "resolved" | "outside" | "excluded" | "unresolved";
 
 export interface ParsedFile {
@@ -70,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string { return typeof value === "string"; }
 function isNumber(value: unknown): value is number { return typeof value === "number" && Number.isInteger(value) && value >= 0; }
-function isKind(value: unknown): value is ImportKind { return value === "import" || value === "re-export" || value === "dynamic-import"; }
+function isKind(value: unknown): value is ImportKind { return value === "import" || value === "re-export" || value === "dynamic-import" || value === "require"; }
 function isStatus(value: unknown): value is ImportStatus { return value === "resolved" || value === "outside" || value === "excluded" || value === "unresolved"; }
 
 function isParsedFile(item: unknown): item is ParsedFile {
@@ -289,7 +289,9 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
       reason = "Node built-in module";
     } else {
       const options = optionsForDirectory(path.dirname(source));
-      const resolved = ts.resolveModuleName(specifier, source, options, ts.sys).resolvedModule?.resolvedFileName;
+      // require() resolves under the package "require" condition; every other kind keeps the compiler's default mode.
+      const mode = kind === "require" ? ts.ModuleKind.CommonJS : undefined;
+      const resolved = ts.resolveModuleName(specifier, source, options, ts.sys, undefined, undefined, mode).resolvedModule?.resolvedFileName;
       if (!resolved) {
         const extension = path.extname(specifier);
         if ((specifier.startsWith(".") || path.isAbsolute(specifier)) && extension &&
@@ -332,19 +334,25 @@ export async function parseRepository(directory: string, adapter: ParserAdapter 
       if (specifier !== undefined) record(file.path, specifier, "re-export");
     }
     for (const call of source.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-      if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) continue;
+      const callee = call.getExpression();
+      let kind: ImportKind;
+      if (callee.getKind() === SyntaxKind.ImportKeyword) kind = "dynamic-import";
+      // A require declared in this file (createRequire, a parameter, a helper) loads relative to something we can't see.
+      else if (Node.isIdentifier(callee) && callee.getText() === "require" && call.getArguments().length === 1 &&
+          !(callee.getSymbol()?.getDeclarations() ?? []).some(declaration => declaration.getSourceFile() === source)) kind = "require";
+      else continue;
       const argument = call.getArguments()[0];
       if (argument?.getKind() === SyntaxKind.StringLiteral) {
-        record(file.path, argument.asKindOrThrow(SyntaxKind.StringLiteral).getLiteralValue(), "dynamic-import");
+        record(file.path, argument.asKindOrThrow(SyntaxKind.StringLiteral).getLiteralValue(), kind);
       } else if (argument?.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
-        record(file.path, argument.asKindOrThrow(SyntaxKind.NoSubstitutionTemplateLiteral).getLiteralValue(), "dynamic-import");
+        record(file.path, argument.asKindOrThrow(SyntaxKind.NoSubstitutionTemplateLiteral).getLiteralValue(), kind);
       } else {
         imports.push({
           from: file.path,
           specifier: argument?.getText() ?? "",
-          kind: "dynamic-import",
+          kind,
           status: "unresolved",
-          reason: "Non-literal dynamic import",
+          reason: kind === "require" ? "Non-literal require" : "Non-literal dynamic import",
         });
       }
     }
