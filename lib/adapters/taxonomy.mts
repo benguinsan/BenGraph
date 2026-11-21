@@ -2,11 +2,12 @@ import type { FileRole, Framework } from "./types.mts";
 import type { ParsedFile } from "../parser/index.mts";
 import { fileCategories } from "../graph/analysis.mts";
 
-export const frameworkNames = { nextjs: "Next.js", nestjs: "NestJS", react: "React" };
+export const frameworkNames = { nextjs: "Next.js", nestjs: "NestJS", express: "Express", react: "React" };
 
 const taxonomy = {
   nextjs: [["page", "Page routes"], ["api", "API endpoints"], ["server-action", "Server actions"], ["layout", "Layouts"], ["loading-error", "Loading & error UI"], ["component", "Components"], ["hook", "Hooks"], ["middleware", "Middleware"], ["metadata", "Metadata files"], ["instrumentation", "Instrumentation"], ["config", "Config files"], ["test", "Tests"]],
   nestjs: [["controller", "Controllers"], ["service", "Services"], ["module", "Modules"], ["entity", "Entities"], ["guard", "Guards"], ["middleware", "Middleware"], ["config", "Config"]],
+  express: [["route", "Routers"], ["controller", "Controllers"], ["model", "Models"], ["middleware", "Middleware"], ["service", "Services"], ["config", "Config"]],
   react: [["component", "Components"], ["hook", "Hooks"], ["context", "Contexts"], ["config", "Config"]],
 } as const;
 

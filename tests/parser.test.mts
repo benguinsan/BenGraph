@@ -211,6 +211,49 @@ test("parses real imports and reports a broken path", async () => {
   }
 });
 
+test("require() calls become edges, mixed files report both kinds once, and unreadable requires are reported", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "cartograph-require-"));
+  try {
+    await mkdir(path.join(root, "routes"));
+    await writeFile(path.join(root, "package.json"), '{"dependencies":{"express":"4"}}');
+    await writeFile(path.join(root, "app.js"), [
+      'const express = require("express");',
+      'const fs = require("fs");',
+      'const users = require("./routes/users");',
+      'const again = require(`./routes/users`);',
+      'const dynamic = require(name);',
+      'module.exports = express();',
+    ].join("\n"));
+    await writeFile(path.join(root, "routes", "users.js"), 'const db = require("../db"); module.exports = db;');
+    await writeFile(path.join(root, "db.js"), "module.exports = {};");
+    await writeFile(path.join(root, "mixed.ts"), 'import "./db"; const db = require("./db"); import x = require("./db");');
+    await writeFile(path.join(root, "shadow.js"), 'function load(require) { return require("./db"); }');
+
+    const result = await parseRepository(root);
+    assert.equal(result.framework, "express");
+    assert.deepEqual(result.roles, [{ path: "routes/users.js", role: "route" }]);
+    assert.deepEqual(result.routes, []);
+    assert.deepEqual(result.imports.filter(item => item.from === "app.js").map(item => [item.specifier, item.status, item.reason ?? item.target]), [
+      ["express", "unresolved", "Package or alias not found"],
+      ["fs", "outside", "Node built-in module"],
+      ["./routes/users", "resolved", "routes/users.js"],
+      ["./routes/users", "resolved", "routes/users.js"],
+      ["name", "unresolved", "Non-literal require"],
+    ]);
+    assert.deepEqual(result.edges, [
+      { from: "app.js", to: "routes/users.js", kind: "require" },
+      { from: "mixed.ts", to: "db.js", kind: "import" },
+      { from: "mixed.ts", to: "db.js", kind: "require" },
+      { from: "routes/users.js", to: "db.js", kind: "require" },
+    ]);
+    assert.equal(result.imports.filter(item => item.from === "mixed.ts").length, 2);
+    assert.equal(result.imports.some(item => item.from === "shadow.js"), false);
+    assert.equal(result.files.find(file => file.path === "db.js")?.fanIn, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI writes a result that reads back with the parser contract", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "cartograph-parser-"));
   try {
