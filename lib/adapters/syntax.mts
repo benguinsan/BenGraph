@@ -1,4 +1,4 @@
-import { Node, SyntaxKind, type SourceFile } from 'ts-morph';
+import { Node, SyntaxKind, ts, type SourceFile, type Symbol as TsMorphSymbol } from 'ts-morph';
 export type ParsedSource = {path: string; source: SourceFile};
 
 export function literal(node: Node | undefined): string | undefined {
@@ -68,8 +68,55 @@ function runtimeExport(source: SourceFile, name: string, seen: Set<string>): boo
   return false;
 }
 
+/** ES module exports only; route extraction relies on this because CommonJS route files aren't proven to be served. */
 export function exportsOf(source: SourceFile): ReadonlyMap<string, readonly Node[]> {
   return new Map([...source.getExportedDeclarations()].filter(([name]) => runtimeExport(source, name, new Set())));
+}
+
+/** Names assigned to module.exports or exports at the top level; exports assembled inside branches or functions are not read. */
+function commonJsExports(source: SourceFile): ReadonlyMap<string, readonly Node[]> {
+  const exported = new Map<string, Node[]>();
+  const local = (symbol: TsMorphSymbol | undefined) => symbol?.getDeclarations().find(declaration => declaration.getSourceFile() === source);
+  const add = (name: string, value: Node | undefined) => {
+    const node = unwrap(value);
+    const declaration = node && Node.isIdentifier(node) ? local(node.getSymbol()) : node;
+    exported.delete(name);
+    if (declaration) exported.set(name, [declaration]);
+  };
+  // After module.exports or the bare exports alias is reassigned, the alias no longer reaches the module.
+  let rebound = false;
+  for (const statement of source.getStatements()) {
+    const expression = Node.isExpressionStatement(statement) ? statement.getExpression() : undefined;
+    if (!expression || !Node.isBinaryExpression(expression) || expression.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+    const target = expression.getLeft().getText();
+    const value = expression.getRight();
+    if (target === 'exports') { rebound = true; continue; }
+    if (target === 'module.exports') {
+      exported.clear();
+      rebound = true;
+      const object = unwrap(value);
+      if (!object || !Node.isObjectLiteralExpression(object)) { add('default', value); continue; }
+      for (const property of object.getProperties()) {
+        if (Node.isShorthandPropertyAssignment(property)) {
+          const declaration = local(property.getValueSymbol());
+          if (declaration) exported.set(property.getName(), [declaration]);
+        } else if ((Node.isPropertyAssignment(property) || Node.isMethodDeclaration(property)) && !Node.isComputedPropertyName(property.getNameNode())) {
+          add(property.getName(), Node.isPropertyAssignment(property) ? property.getInitializer() : property);
+        }
+      }
+      continue;
+    }
+    const match = target.match(/^(module\.)?exports\.([A-Za-z_$][\w$]*)$/);
+    if (match && (match[1] || !rebound)) add(match[2], value);
+  }
+  return exported;
+}
+
+/** Runtime exports of either module system, for adapters that only need a file's names. */
+export function moduleExports(source: SourceFile): ReadonlyMap<string, readonly Node[]> {
+  const commonJs = commonJsExports(source);
+  // A file with ES syntax can still assign module.exports under a CommonJS transform; ES names win on conflict.
+  return ts.isExternalModule(source.compilerNode) ? new Map([...commonJs, ...exportsOf(source)]) : commonJs;
 }
 
 export function importedName(node: Node, module: string): string | undefined {
